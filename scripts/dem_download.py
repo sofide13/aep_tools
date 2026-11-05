@@ -9,7 +9,9 @@ SOURCES SUPPORTEES :
   5. CopDEM-GLO-10      (CDSE login requis, 10m = meilleure precision)
 """
 
-import os, math, json, time, urllib.request, urllib.error, urllib.parse
+import os, math, json, urllib.request, urllib.error, urllib.parse
+
+from ._net import https_urlopen
 
 # ─── Catalogues sources gratuites (sans authentification) ────────────────────
 
@@ -44,7 +46,7 @@ def _cdse_list_stac_collections(token, base, log_fn):
             headers={"Authorization": "Bearer " + token,
                      "User-Agent": "AEP-Tools/2.0",
                      "Accept": "application/json"})
-        with urllib.request.urlopen(req, timeout=15) as r:
+        with https_urlopen(req, timeout=15) as r:
             data = json.loads(r.read())
         cols = [c.get("id","") for c in data.get("collections", [])]
         log_fn("  Collections STAC : " + ", ".join(cols[:10]))
@@ -77,7 +79,7 @@ def _cdse_search_copdem_stac(token, lat_min, lat_max, lon_min, lon_max, log_fn):
                     headers={"Authorization": "Bearer " + token,
                              "User-Agent": "AEP-Tools/2.0",
                              "Accept": "application/json"})
-                with urllib.request.urlopen(req, timeout=20) as r:
+                with https_urlopen(req, timeout=20) as r:
                     data = json.loads(r.read())
                 features = data.get("features", [])
                 if features:
@@ -115,7 +117,7 @@ def _cdse_search_copdem(token, lat_min, lat_max, lon_min, lon_max, log_fn):
             headers={"Authorization": "Bearer " + token,
                      "User-Agent": "AEP-Tools/2.0",
                      "Accept": "application/json"})
-        with urllib.request.urlopen(req, timeout=30) as r:
+        with https_urlopen(req, timeout=30) as r:
             data = json.loads(r.read())
         products = data.get("value", [])
         cog = [p for p in products if "COG" in p.get("Name", "")]
@@ -142,7 +144,7 @@ def _download(url, dest, log_fn, headers=None, timeout=120):
         h.update(headers)
     try:
         req = urllib.request.Request(url, headers=h)
-        with urllib.request.urlopen(req, timeout=timeout) as r:
+        with https_urlopen(req, timeout=timeout) as r:
             total = int(r.headers.get("Content-Length", 0))
             done  = 0
             with open(dest, "wb") as f:
@@ -259,7 +261,7 @@ def _download_opentopo(demtype, bbox, output_tif, api_key, log_fn, progress_fn):
 
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "AEP-Tools/2.0"})
-        with urllib.request.urlopen(req, timeout=300) as r:
+        with https_urlopen(req, timeout=300) as r:
             total = int(r.headers.get("Content-Length", 0))
             done  = 0
             with open(output_tif, "wb") as f:
@@ -300,7 +302,7 @@ def _get_cdse_token(username, password, log_fn):
         req = urllib.request.Request(
             url, data=data,
             headers={"Content-Type": "application/x-www-form-urlencoded"})
-        with urllib.request.urlopen(req, timeout=30) as r:
+        with https_urlopen(req, timeout=30) as r:
             tok = json.loads(r.read())
         return tok["access_token"]
     except Exception as e:

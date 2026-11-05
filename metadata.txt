@@ -2,7 +2,7 @@
 name=AEP Tools
 qgisMinimumVersion=3.16
 description=Water supply (AEP) tools: DEM download, network elevations with reliability classes, CSV export and elevation-based splitting
-version=2.1.3
+version=2.1.4
 author=Kouidri Sofiane
 email=sofihydro@gmail.com
 about=Extracts elevations for water supply network layers from a local or automatically downloaded DEM (Copernicus GLO-30, SRTM, NASADEM, AW3D30, CopDEM). Each vertex gets a reliability class derived from local DEM slope, with optional GPS calibration (IDW). Workflow: DEM download, CSV export, elevations, splitting by elevation difference, elevation attribute. Author: Kouidri Sofiane.
@@ -16,5 +16,6 @@ experimental=False
 deprecated=False
 hasProcessingProvider=no
 changelog=
+    2.1.4 - Security: all network calls restricted to https (Bandit B310).
     2.1.3 - English metadata, author contact details, CITATION.cff.
     2.1.2 - Fix: GPS IDW calibration (default method) crashed because of a corrupted function. qgis.PyQt imports, About entry.

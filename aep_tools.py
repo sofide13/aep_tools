@@ -36,7 +36,7 @@ class AEPToolsPlugin:
     def show_about(self):
         QMessageBox.information(
             self.iface.mainWindow(), "À propos - AEP Tools",
-            "<h3>AEP Tools v2.1.3</h3>"
+            "<h3>AEP Tools v2.1.4</h3>"
             "<p>Outils QGIS pour les réseaux d'eau potable : DEM, altitudes, "
             "classification de fiabilité, découpage par dénivelé.</p>"
             "<p><b>Développé par : Kouidri Sofiane</b><br>"

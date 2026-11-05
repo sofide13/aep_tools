@@ -2,7 +2,7 @@
 
 > **Auteur : Kouidri Sofiane** — © 2026 Kouidri Sofiane. Toute redistribution doit conserver cette mention.
 
-**Version** : 2.1.3  
+**Version** : 2.1.4  
 **Auteur** : Kouidri Sofiane (sofihydro@gmail.com)  
 **Licence** : GNU GPL v2 ou ultérieure (voir LICENSE)  
 **Compatibilité** : QGIS 3.16+  

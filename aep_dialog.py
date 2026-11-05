@@ -1209,7 +1209,7 @@ class AEPDialog(QDialog):
         main_layout.addWidget(stack, 1)
 
         footer = QLabel(
-            "Kouidri Sofiane · sofihydro@gmail.com  |  QGIS ≥ 3.16  |  AEP Tools v2.1.3  |  © 2026 Kouidri Sofiane"
+            "Kouidri Sofiane · sofihydro@gmail.com  |  QGIS ≥ 3.16  |  AEP Tools v2.1.4  |  © 2026 Kouidri Sofiane"
         )
         footer.setStyleSheet("color: #888; font-size: 10px; padding: 2px 6px;")
         footer.setAlignment(Qt.AlignRight)
