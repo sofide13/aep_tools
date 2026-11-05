@@ -8,11 +8,11 @@ MÉTHODE :
   4. Calibration GPS optionnelle : si un CSV de levés GPS est fourni,
      les résidus DEM-GPS sont interpolés (IDW) et appliqués à chaque vertex.
 
-CLASSIFICATION D'INCERTITUDE (validée sur 3738 points GPS, Ouest-Algérien) :
-  Pente < 3°   → FIABLE       ±5-10m   (ex zone FG plateau : RMSE mesuré 4.8m)
+CLASSIFICATION D'INCERTITUDE (validée sur points GPS de terrain) :
+  Pente < 3°   → FIABLE       ±5-10m   (terrain plat)
   Pente 3-15°  → ACCEPTABLE   ±10-20m
   Pente 15-30° → INCERTAINE   ±20-40m
-  Pente > 30°  → NON_FIABLE   >40m     (ex zone BC gorges : RMSE mesuré 47m)
+  Pente > 30°  → NON_FIABLE   >40m     (relief très marqué)
 
 TOLÉRANCE AEP : ±3m souhaités → atteignable en terrain plat avec DEM 10m (CopDEM-GLO-10)
                 DEM 30m donne ±5-10m en plaine, ±30-50m en montagne.
@@ -205,7 +205,6 @@ def _load_gps_points(gps_csv, gps_epsg, log_fn):
 
             # Détection colonnes
             has_latlon = "latitude" in headers or "lat" in headers
-            has_xy     = ("x" in headers or "x_utm" in headers)
 
             for row in reader:
                 row_l = {k.strip().lower(): v for k, v in row.items()}
@@ -429,8 +428,7 @@ def run(params, log_fn, progress_fn, stop_fn=None):
         if gps_pts:
             try:
                 from pyproj import Transformer as _PT
-                tr_to_utm = _PT.from_crs("EPSG:4326",
-                                         "EPSG:" + str(gps_epsg), always_xy=True)
+                _PT.from_crs("EPSG:4326", "EPSG:" + str(gps_epsg), always_xy=True)
                 gps_coords, gps_alts = _build_gps_index(gps_pts, gps_epsg, log_fn)
 
                 # Calculer résidu DEM-GPS à chaque point GPS

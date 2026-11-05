@@ -134,7 +134,7 @@ def run(params, log_fn, progress_fn, stop_fn=None):
         srs_dem.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
         epsg_dem = int(srs_dem.GetAttrValue("AUTHORITY", 1) or 4326)
     except Exception:
-        pass
+        epsg_dem = 4326
 
     px_m = abs(gt[1]) * 111320
     log_fn(f"  DEM EPSG:{epsg_dem}  |  resolution ~{px_m:.0f} m/pixel  |  {W}x{H} pixels")

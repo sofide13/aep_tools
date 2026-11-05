@@ -1,7 +1,7 @@
 cff-version: 1.2.0
 message: "Si vous utilisez cette extension, merci de la citer comme ci-dessous."
 title: "AEP Tools - extension QGIS"
-version: "2.1.4"
+version: "2.1.5"
 type: software
 authors:
   - family-names: "Kouidri"

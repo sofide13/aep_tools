@@ -476,7 +476,7 @@ class Tab00_DEM(TabBase):
         self.form.addRow('Source DEM :', lbl_source)
 
         self.combo_mode = QComboBox()
-        self.combo_mode.addItem('preconfigure - Region Ouest-Algerien', 'preconfigure')
+        self.combo_mode.addItem('preconfigure - Emprise par defaut', 'preconfigure')
         self.combo_mode.addItem('auto         - Depuis le CSV AEP',     'auto')
         self.combo_mode.addItem('manuel       - Coordonnees manuelles', 'manuel')
         self.combo_mode.currentIndexChanged.connect(self._on_mode_changed)
@@ -590,7 +590,7 @@ class Tab02_Altitudes(TabBase):
             title="Étape 3 — Altitudes DEM",
             description=(
                 "Extrait l'altitude de chaque vertex depuis un DEM local."
-                " V2.1 : validé sur 4 203 pts GPS (Algérie) — RMSE 1.43 m, LE90 2.25 m,"
+                " V2.1 : validé sur 4 203 pts GPS — RMSE 1.43 m, LE90 2.25 m,"
                 " 96.6 % dans ±3 m (APS). Classification automatique de fiabilité par pente"
                 " (FIABLE/ACCEPTABLE/INCERTAINE/NON_FIABLE)."
             ),
@@ -682,7 +682,7 @@ class Tab02_Altitudes(TabBase):
 
         # Info methode
         info = QLabel(
-            "── Résultats validés V2.1 (N=4 203 pts GPS, Algérie) ──\n"
+            "── Résultats validés V2.1 (N=4 203 pts GPS) ──\n"
             "  ME = +0.29 m  |  RMSE = 1.43 m  |  LE90 = 2.25 m\n"
             "  96.6 % dans ±3 m ✅  |  86.9 % dans ±2 m\n"
             "  Biais normalísé ME/σ = 0.21  (non-Gaussien : LE90 recommandé)"
@@ -943,14 +943,14 @@ class Tab05_ExtractCSV(TabBase):
         self.spin_epsg.setFixedWidth(120)
         self.spin_epsg.setToolTip(
             'Code EPSG du systeme de coordonnees du CSV\n'
-            '  32630 = UTM Zone 30N (Algerie Ouest, recommande)\n'
-            '  32631 = UTM Zone 31N (Algerie Est)\n'
+            '  32630 = UTM Zone 30N (zone UTM 30 Nord)\n'
+            '  32631 = UTM Zone 31N (zone UTM 31 Nord)\n'
             '   4326 = WGS84 Longitude/Latitude (GPS)')
         self.form.addRow('EPSG CSV :', self.spin_epsg)
 
         # Liens EPSG rapides
         lbl_epsg = QLabel(
-            '32630=UTM-30N(Oran/Tlemcen)   32631=UTM-31N(Alger/Constantine)   4326=WGS84(GPS)')
+            '32630=UTM-30N   32631=UTM-31N   4326=WGS84(GPS)')
         lbl_epsg.setStyleSheet('color:#1565C0; font-size:9px;')
         self.form.addRow('', lbl_epsg)
 
@@ -1050,7 +1050,7 @@ class TabAccueil(QWidget):
         sc_layout = QVBoxLayout(stats_card)
         sc_layout.setContentsMargins(12, 10, 12, 10)
         sc_layout.setSpacing(4)
-        sc_title = QLabel("✅  Précision validée — Copernicus GLO-30 / Algérie (V2.1)")
+        sc_title = QLabel("✅  Précision validée — Copernicus GLO-30 (V2.1)")
         sc_title.setStyleSheet("color:#1B5E20; font-weight:bold; font-size:11px;")
         sc_layout.addWidget(sc_title)
         sc_stats = QLabel(
@@ -1069,12 +1069,12 @@ class TabAccueil(QWidget):
              "Fichier de base utilisé par les étapes 2, 3 et 4."),
             ("🌍", "Étape 2", "Télécharger DEM",
              "Télécharge le DEM Copernicus GLO-30 (30 m). Zone bbox : "
-             "préconfigurée Ouest Algérien, auto depuis CSV étape 1, ou coordonnées manuelles. "
+             "emprise préréglée, auto depuis CSV étape 1, ou coordonnées manuelles. "
              "Gratuit, sans compte requis."),
             ("⛰️", "Étape 3", "Altitudes DEM",
              "Échantillonne l'altitude depuis le DEM (étape 2) pour chaque vertex "
              "(vertices_avec_altitudes.csv). Validé : RMSE 1.43 m, LE90 2.25 m, "
-             "96.6 % dans ±3 m sur 4 203 pts GPS (Algérie, V2.1)."),
+             "96.6 % dans ±3 m sur 4 203 pts GPS (V2.1)."),
             ("✂️", "Étape 4", "Découpage dénivelé",
              "Découpe un fichier source (SHP/GeoJSON) à chaque variation de "
              "dénivelé (seuil configurable, défaut 10 m). Utilise le CSV altitudes étape 3. "
@@ -1127,7 +1127,7 @@ class TabAccueil(QWidget):
             "💡  Flux de travail conseillé : 1 → 2 → 3 → 4 → 5\n"
             "     Étape 6 : pour tout CSV quelconque avec coordonnées.\n"
             "     Si vous avez déjà un DEM local, commencez directement à l'étape 1.\n"
-            "     V2.1 — Validé sur 4 203 pts GPS (Algérie) : RMSE 1.43 m, LE90 2.25 m ✅"
+            "     V2.1 — Validé sur 4 203 pts GPS : RMSE 1.43 m, LE90 2.25 m ✅"
         )
         note.setStyleSheet(
             "background: #FFF8E1; border: 1px solid #FFE082; border-radius: 5px; "
@@ -1209,7 +1209,7 @@ class AEPDialog(QDialog):
         main_layout.addWidget(stack, 1)
 
         footer = QLabel(
-            "Kouidri Sofiane · sofihydro@gmail.com  |  QGIS ≥ 3.16  |  AEP Tools v2.1.4  |  © 2026 Kouidri Sofiane"
+            "Kouidri Sofiane · sofihydro@gmail.com  |  QGIS ≥ 3.16  |  AEP Tools v2.1.5  |  © 2026 Kouidri Sofiane"
         )
         footer.setStyleSheet("color: #888; font-size: 10px; padding: 2px 6px;")
         footer.setAlignment(Qt.AlignRight)

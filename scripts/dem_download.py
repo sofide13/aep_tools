@@ -85,10 +85,10 @@ def _cdse_search_copdem_stac(token, lat_min, lat_max, lon_min, lon_max, log_fn):
                 if features:
                     log_fn("  STAC [" + collection + "] : " + str(len(features)) + " tuile(s)")
                     return features, "stac"
-            except urllib.error.HTTPError as e:
-                pass
-            except Exception as e:
-                pass
+            except urllib.error.HTTPError:
+                log_fn("  STAC [" + collection + "] : collection indisponible")
+            except Exception:
+                log_fn("  STAC [" + collection + "] : requete echouee")
     return [], "none"
 
 def _cdse_search_copdem(token, lat_min, lat_max, lon_min, lon_max, log_fn):
@@ -391,7 +391,7 @@ def _download_copdem10(bbox, output_dir, output_tif, username, password, log_fn,
                 if os.path.abspath(extracted) != os.path.abspath(tif_dest):
                     os.replace(extracted, tif_dest)
             ok_paths.append(tif_dest)
-        except Exception as e:
+        except Exception:
             from osgeo import gdal as _gd
             if _gd.Open(dest):
                 os.replace(dest, tif_dest)
@@ -539,7 +539,7 @@ def run(params, log_fn, progress_fn, stop_fn=None):
             log_fn("  Alt min/moy/max : " + str(round(st[0])) + " / "
                    + str(round(st[2])) + " / " + str(round(st[1])) + " m")
         except Exception:
-            pass
+            log_fn("  Statistiques du MNT indisponibles")
         ds = None
 
     progress_fn(100)

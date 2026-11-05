@@ -1,129 +1,93 @@
-# AEP Tools — Extension QGIS pour réseaux d'eau potable
+# AEP Tools — QGIS plugin for water supply networks
 
-> **Auteur : Kouidri Sofiane** — © 2026 Kouidri Sofiane. Toute redistribution doit conserver cette mention.
+> **Author: Kouidri Sofiane** (sofihydro@gmail.com) — © 2026 Kouidri Sofiane. Any redistribution must retain this notice.
 
-**Version** : 2.1.4  
-**Auteur** : Kouidri Sofiane (sofihydro@gmail.com)  
-**Licence** : GNU GPL v2 ou ultérieure (voir LICENSE)  
-**Compatibilité** : QGIS 3.16+  
+**Version:** 2.1.5 · **License:** GNU GPL v2 or later (see `LICENSE`) · **QGIS:** 3.16+
 
----
+AEP Tools extracts elevations for water supply (AEP) network layers from a Digital Elevation Model (DEM), tells you how reliable each elevation is, and prepares the data for hydraulic modelling.
 
-## Description
+## Workflow (6 steps)
 
-Extension QGIS pour le traitement altimétrique des réseaux d'alimentation en eau potable (AEP).  
-Développée et validée sur le réseau Oran–Tlemcen (Algérie occidentale, ~680 km de conduite, 134 206 vertices).
+| Step | Tab | What it does |
+|---|---|---|
+| 1 | Export CSV | Exports the network layers from QGIS to CSV |
+| 2 | DEM | Downloads a DEM for the network area |
+| 3 | Elevations | Extracts elevations at each vertex and classifies their reliability |
+| 4 | Splitting | Splits the network by elevation-difference threshold |
+| 5 | Elevation attribute | Adds the elevation field to QGIS layers |
+| 6 | CSV elevations | Extracts elevations for any CSV of coordinates |
 
----
+## DEM sources
 
-## Workflow en 6 étapes
+| Source | Resolution | Access |
+|---|---|---|
+| Copernicus GLO-30 | ~30 m | Free, no key |
+| SRTM GL1 | ~30 m | Free, no key |
+| NASADEM | ~30 m | OpenTopography API key |
+| AW3D30 | ~30 m | OpenTopography API key |
+| CopDEM GLO-10 | ~10 m | Free Copernicus Data Space account |
 
-```
-Etape 1 ─ Export CSV        Exporter les couches réseau depuis QGIS en CSV
-Etape 2 ─ Télécharger DEM   Télécharger le MNT Copernicus GLO-30 (automatique)
-Etape 3 ─ Altitudes réseau  Extraire les altitudes + classification fiabilité
-Etape 4 ─ Découpage         Découper le réseau par seuil de dénivelé
-Etape 5 ─ Attribut altitude Ajouter la colonne altitude aux couches QGIS
-Etape 6 ─ Extraction CSV    Extraire des altitudes pour n'importe quel CSV
-```
+The default source is Copernicus GLO-30 (global coverage, vertical accuracy depends on terrain).
 
----
+## Reliability classification
 
-## Source DEM utilisée
+Each vertex receives a `qualite` label based on the local DEM slope (Horn 3×3 algorithm):
 
-| Paramètre | Valeur |
-|-----------|--------|
-| Dataset | Copernicus DEM GLO-30 |
-| Résolution | ~30 m/pixel |
-| Source | AWS S3 (gratuit, sans clé API) |
-| Couverture | Mondiale (90°N – 90°S) |
-| Précision verticale | ±2 m (zones plates) à ±50 m (haute montagne) |
-
----
-
-## Résultats de validation (réseau Oran–Tlemcen)
-
-Validation effectuée avec **3 738 points GPS** couvrant ~30 km sur 680 km de réseau.
-
-| Zone | N pts | Terrain | RMSE (m) | Biais (m) | Qualité |
-|------|-------|---------|----------|----------|---------|
-| FG   | 1 444 | Plaine (Oran côte) | **4.8** | −0.9 | ✅ EXCELLENT |
-| DE   | 452   | Collines           | 27.8   | −11.2 | ⚠️ LIMITE |
-| CD   | 716   | Accidenté          | 31.2   | +7.2  | ⚠️ LIMITE |
-| AB   | 630   | Montagne (Tlemcen) | 38.7   | +25.7 | ❌ INSUFFISANT |
-| BC   | 496   | Montagne (Mascara) | 47.8   | +15.4 | ❌ INSUFFISANT |
-| **GLOBAL** | **3 738** | — | **29.1** | +6.0 | ⚠️ LIMITE |
-
-> **Objectif initial ±3 m (0.3 bar)** : atteint uniquement en terrain plat (zone FG).
-
----
-
-## Classification automatique de fiabilité
-
-Chaque vertex reçoit une étiquette `qualite` basée sur la **pente locale du DEM** (algorithme de Horn 3×3) :
-
-| Pente locale | Classe | Incertitude estimée |
-|-------------|--------|-------------------|
+| Local slope | Class | Estimated uncertainty |
+|---|---|---|
 | < 2° | `FIABLE` | ±3–5 m |
 | 2°–5° | `ACCEPTABLE` | ±5–15 m |
 | 5°–15° | `INCERTAINE` | ±15–30 m |
 | > 15° | `NON_FIABLE` | > ±30 m |
 
----
+(Class names are kept in French in the output files: reliable / acceptable / uncertain / unreliable.)
 
-## Limitations connues
+## Optional GPS calibration
 
-1. **Résolution DEM** : Le GLO-30 (30 m) est insuffisant en terrain montagneux.  
-   → En montagne (Tlemcen, Mascara) : RMSE 38–48 m, hors tolérance hydraulique.
+If you provide a CSV of GPS survey points, the DEM–GPS residuals can be applied to each vertex with one of three methods: **IDW** (default), linear **regression**, or global **bias**.
 
-2. **Surface vs Terrain** : Le GLO-30 est un DSM (surface), pas un DTM (sol nu).  
-   → En zone boisée ou urbanisée, surestimation systématique de l'altitude.
+## Reported validation (version 2.1)
 
-3. **Couverture GPS limitée** : Les 3 738 points GPS ne couvrent que ~30/680 km.  
-   → La validation ne couvre pas toutes les zones géographiques du réseau.
+Author-reported results with the Copernicus GLO-30 DEM against 4,203 GPS control points: mean error +0.29 m, **RMSE 1.43 m**, **LE90 2.25 m**, 96.6 % of points within ±3 m. Results depend on terrain, DEM source and whether GPS calibration is used; validate on your own control points before relying on them.
 
-4. **Sources premium non accessibles** : CopDEM-GLO-10 (10 m) non disponible  
-   via API standard CDSE pour les comptes gratuits.
+## Known limitations
 
----
+1. A 30 m DEM is insufficient in steep terrain: check the reliability class of each vertex.
+2. GLO-30 is a surface model (DSM), not bare earth: elevations are over-estimated under dense vegetation or buildings.
+3. Premium sources (e.g. CopDEM GLO-10) may not be available through the standard API for free accounts.
 
-## Améliorations futures recommandées
+## Step 6 — CSV format
 
-- Intégrer un MNT 5–10 m de l'**INCT** (Institut National de Cartographie, Algérie)
-- Ajouter la calibration GPS par IDW (implémentée, non encore testée à grande échelle)
-- Étendre la couverture GPS à l'ensemble du réseau pour une validation complète
-
----
-
-## Utilisation de l'Etape 6 (Extraction CSV)
-
-Format CSV accepté (séparateur `,` ou `;`) :
+Accepted separators: `,` or `;`.
 
 ```
-ID;X;Y;...autres colonnes...
-1;200345;3875210;...
+ID;X;Y;...other columns...
+1;500000;4500000;...
 ```
 
-ou en coordonnées géographiques :
+or in geographic coordinates:
 
 ```
 ID,LONGITUDE,LATITUDE,...
-1,-1.342,34.856,...
+1,12.3456,45.6789,...
 ```
 
-Codes EPSG courants :
-- `32630` : UTM Zone 30N → Oran, Tlemcen, Sidi Bel Abbès
-- `32631` : UTM Zone 31N → Alger, Constantine, Annaba
-- `4326`  : WGS84 Longitude/Latitude (GPS)
+Common EPSG codes: `32630` (UTM 30N), `32631` (UTM 31N), `4326` (WGS84 longitude/latitude).
 
----
+## Requirements
 
-## Dépendances
+- GDAL/OGR and PyQt (included with QGIS)
+- `openpyxl` for reading `.xlsx` GPS files (optional)
+- Internet access for DEM download (HTTPS only)
 
-- **GDAL/OGR** : inclus dans QGIS
-- **PyQt5** : inclus dans QGIS
-- **openpyxl** : pour la lecture des fichiers .xlsx (validation GPS)
+## Installation
 
----
+In QGIS: *Plugins → Manage and Install Plugins → Install from ZIP*, then select the plugin ZIP.
 
-*Documentation générée le 2026-05-18 — AEP Tools V2.1.0*
+## Citation
+
+See `CITATION.cff`. Please cite: Kouidri, S. (2026). *AEP Tools — QGIS plugin*.
+
+## Contact
+
+Kouidri Sofiane — sofihydro@gmail.com

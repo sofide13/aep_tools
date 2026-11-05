@@ -140,4 +140,4 @@ def run(params, log_fn, progress_fn, stop_fn=None):
     ko = os.path.getsize(output_csv) / 1024
     progress_fn(100)
     log_fn(f"\n  ✅ CSV créé ({ko:.0f} Ko) : {output_csv}")
-    log_fn(f"\n  ℹ  ÉTAPE SUIVANTE : lancer Étape 2 — Altitudes")
+    log_fn("\n  ℹ  ÉTAPE SUIVANTE : lancer Étape 2 — Altitudes")
