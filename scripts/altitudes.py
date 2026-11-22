@@ -1,34 +1,39 @@
 """
-Script 02 — Extraction altitudes depuis DEM local (AEP Tools V2.0)
+Etape 3 -- Altitudes DEM, controles de coherence et altitude finale
 
-MÉTHODE :
-  1. Extraction DEM bilinéaire directe (précis, sans jointure spatiale)
-  2. Calcul automatique de la pente locale depuis le DEM
-  3. Classification d'incertitude basée sur la pente (validée terrain)
-  4. Calibration GPS optionnelle : si un CSV de levés GPS est fourni,
-     les résidus DEM-GPS sont interpolés (IDW) et appliqués à chaque vertex.
+METHODE
+  1. Extraction bilineaire de l'altitude DEM a chaque vertex.
+  2. Pente locale calculee depuis le DEM (taille du pixel corrigee par cos(latitude)).
+  3. Classe de fiabilite selon la pente. Les incertitudes ci-dessous sont des valeurs
+     INDICATIVES supposees, NON validees : l'etape 6 (Validation) mesure l'erreur reelle.
+  4. Controles de coherence sans leve topo : batiments (optionnel), 2e DEM (optionnel),
+     pics sur le profil de la conduite.
+  5. Altitude finale vertex par vertex : DEM sans alerte ; terrain nu FABDEM (optionnel)
+     ou interpolation le long de la conduite si alerte.
+  6. Calibration GPS optionnelle (IDW des residus DEM - GPS). A utiliser avec des points
+     proches du reseau : des points trop espaces produisent une surface sans valeur.
 
-CLASSIFICATION D'INCERTITUDE (validée sur points GPS de terrain) :
-  Pente < 3°   → FIABLE       ±5-10m   (terrain plat)
-  Pente 3-15°  → ACCEPTABLE   ±10-20m
-  Pente 15-30° → INCERTAINE   ±20-40m
-  Pente > 30°  → NON_FIABLE   >40m     (relief très marqué)
+CLASSES (pente locale, constantes du code)
+  < 3 deg    FIABLE       +/- 8 m
+  3-15 deg   ACCEPTABLE   +/- 15 m
+  15-30 deg  INCERTAINE   +/- 30 m
+  > 30 deg   NON_FIABLE   +/- 50 m
 
-TOLÉRANCE AEP : ±3m souhaités → atteignable en terrain plat avec DEM 10m (CopDEM-GLO-10)
-                DEM 30m donne ±5-10m en plaine, ±30-50m en montagne.
+ATTENTION : GLO-30 et SRTM sont des MNS (surface : toits, arbres). En zone baties la pente
+seule ne detecte pas l'erreur ; +/-3 m n'est pas atteignable avec un DEM de 30 m.
 
-COLONNES CSV DE SORTIE :
-  latitude, longitude, name
-  altitude_dem_m      : altitude brute extraite du DEM (m)
-  altitude_corrigee_m : altitude après correction GPS (= DEM si pas de GPS)
-  pente_deg           : pente locale calculée depuis DEM (degrés)
-  qualite             : FIABLE / ACCEPTABLE / INCERTAINE / NON_FIABLE / NODATA
-  incertitude_m       : incertitude estimée (m)
-  methode             : DEM_BRUT / DEM_GPS_CAL
-  n_gps_voisins       : nb points GPS utilisés pour la correction (0 = pas de GPS)
+ENTREE : CSV avec latitude/longitude (ou lat/lon, y/x) ; EPSG indique si different de 4326.
+
+COLONNES DE SORTIE
+  latitude, longitude, name, altitude_dem_m, altitude_corrigee_m, pente_deg, qualite,
+  incertitude_m, methode, n_gps_voisins, ecart_dem2_m, bati, ecart_pic_m, alerte,
+  qualite_finale, altitude_m (FINALE, lue par les etapes 4 et 5), source_altitude,
+  dist_interp_m
 """
 
-import csv, os, math, time
+import csv, os, math, time, re
+from bisect import bisect_left, bisect_right
+from ._common import haversine_m
 
 
 # ─── Constantes ───────────────────────────────────────────────────────────────
@@ -38,13 +43,19 @@ _PENTE_FIABLE      =  3.0   # deg
 _PENTE_ACCEPTABLE  = 15.0
 _PENTE_INCERTAINE  = 30.0
 
-# Incertitudes estimées par classe (DEM 30m, validées terrain)
+# Incertitudes par classe (DEM 30 m) : valeurs SUPPOSEES, non validees (voir l'etape 6)
 _INCERT = {
     "FIABLE":      8.0,
     "ACCEPTABLE":  15.0,
     "INCERTAINE":  30.0,
     "NON_FIABLE":  50.0,
 }
+
+# Contrôles de cohérence (sans levé topo) — valeurs par défaut
+_PIC_M          = 5.0    # écart max (m) d'un vertex par rapport à l'interpolation de ses voisins
+_ECART_DEM2_M   = 5.0    # écart max (m) entre 2 DEM, après retrait du biais médian
+_BATI_BUFFER_M  = 15.0   # distance (m) au bâti en dessous de laquelle le vertex est signalé
+_NAME_RE        = re.compile(r"^fid(\d+)_l(\d+)_v(\d+)")
 
 # Rayon par défaut pour la calibration GPS (mètres)
 _RADIUS_GPS_M = 500.0
@@ -134,12 +145,16 @@ def _sample_nearest(x, y, ds, gt, band, nd):
 
 # ─── Pente locale ─────────────────────────────────────────────────────────────
 
-def _compute_slope(x, y, ds, gt, band, nd, px_m=30.0):
+def _compute_slope(x, y, ds, gt, band, nd, px_m=30.0, px_y_m=None):
     """
     Calcule la pente locale (degrés) par la méthode Horn (3x3 kernel).
-    px_m : taille du pixel en mètres (défaut 30m pour DEM 30m).
+    px_m   : taille du pixel en mètres selon X (défaut 30 m).
+    px_y_m : taille du pixel en mètres selon Y (défaut = px_m).
+    En DEM géographique (degrés), px_m doit être multiplié par cos(latitude).
     Retourne None si données insuffisantes.
     """
+    if px_y_m is None:
+        px_y_m = px_m
     W, H = ds.RasterXSize, ds.RasterYSize
     c0   = int((x - gt[0]) / gt[1])
     r0   = int((y - gt[3]) / gt[5])
@@ -162,12 +177,12 @@ def _compute_slope(x, y, ds, gt, band, nd, px_m=30.0):
         if None in (e, w, n, s):
             return None
         dzdx = (e - w) / (2 * px_m)
-        dzdy = (s - n) / (2 * px_m)
+        dzdy = (s - n) / (2 * px_y_m)
     else:
         dzdx = ((z[(1,-1)] + 2*z[(1,0)] + z[(1,1)])
                - (z[(-1,-1)] + 2*z[(-1,0)] + z[(-1,1)])) / (8 * px_m)
         dzdy = ((z[(-1,1)] + 2*z[(0,1)] + z[(1,1)])
-               - (z[(-1,-1)] + 2*z[(0,-1)] + z[(1,-1)])) / (8 * px_m)
+               - (z[(-1,-1)] + 2*z[(0,-1)] + z[(1,-1)])) / (8 * px_y_m)
 
     slope_rad = math.atan(math.sqrt(dzdx**2 + dzdy**2))
     return math.degrees(slope_rad)
@@ -345,7 +360,279 @@ def _idw_residus(vx_utm, vy_utm, gps_coords, gps_residu, radius_m, k_max):
     return rsum / wsum, len(sel)
 
 
+# ─── Contrôles de cohérence (sans levé topographique) ────────────────────────
+
+def _line_groups(pts, results):
+    """Regroupe les vertices par ligne (noms fidX_lY_vZ) et calcule les distances
+    cumulées (m). Retourne une liste de (indices ordonnés, distances cumulées)."""
+    groups = {}
+    for idx, pt in enumerate(pts):
+        m = _NAME_RE.match(str(pt["name"]).strip())
+        if m and results[idx]["alt_dem"] is not None:
+            groups.setdefault((int(m.group(1)), int(m.group(2))), []).append(
+                (int(m.group(3)), idx))
+    out = []
+    for lst in groups.values():
+        lst.sort()
+        idxs = [i for _, i in lst]
+        cum = [0.0]
+        for a, b in zip(idxs, idxs[1:]):
+            cum.append(cum[-1] + haversine_m(pts[a]["lon"], pts[a]["lat"],
+                                              pts[b]["lon"], pts[b]["lat"]))
+        out.append((idxs, cum))
+    return out
+
+
+def _detect_spikes(pts, results, d1_m, d2_m, pic_max):
+    """Détecte les pics POSITIFS ÉTROITS du profil (bâtiment, arbre isolé).
+
+    Pour chaque vertex, on compare son altitude à la corde reliant les vertices situés
+    à ±d1 (puis ±d2 = 3×d1) le long de la ligne. Un bâtiment étroit donne le même écart
+    aux deux échelles ; une colline (relief réel, large) donne un écart qui croît avec
+    l'échelle. Un vertex est un pic si écart(d1) > pic_max et écart(d2) <= 2×écart(d1).
+    Limites : pics plus larges que ~2×d1 non détectés ; extrémités de ligne non testées.
+    """
+    groups = _line_groups(pts, results)
+    for idxs, cum in groups:
+        n = len(idxs)
+        if n < 3:
+            continue
+        z = [results[i]["alt_dem"] for i in idxs]
+
+        def chord(k, D):
+            j = bisect_right(cum, cum[k] - D) - 1
+            m = bisect_left(cum, cum[k] + D)
+            if j < 0 or m >= n:
+                return None
+            dj = cum[k] - cum[j]
+            dm = cum[m] - cum[k]
+            if dj + dm <= 0:
+                return None
+            return z[k] - (z[j] + (z[m] - z[j]) * dj / (dj + dm))
+
+        R1 = [None] * n
+        shape_ok = [False] * n          # même profil étroit aux deux échelles
+        flagged = [False] * n
+        for k in range(n):
+            r1 = chord(k, d1_m)
+            if r1 is None:
+                continue
+            R1[k] = r1
+            r2 = chord(k, d2_m)
+            shape_ok[k] = r2 is not None and r2 <= 2.0 * r1
+            results[idxs[k]]["pic"] = round(r1, 2)
+            if r1 > pic_max and shape_ok[k]:
+                flagged[k] = True
+        # Croissance de région : les « épaules » du pic (écart plus faible mais même forme)
+        # sont ajoutées tant que l'écart reste > 30 % du seuil.
+        seuil_bas = 0.3 * pic_max
+        for k in range(n):
+            if not flagged[k] or R1[k] is None or R1[k] <= pic_max:
+                continue
+            for step in (-1, 1):
+                q = k + step
+                while 0 <= q < n and R1[q] is not None and R1[q] > seuil_bas \
+                        and shape_ok[q] and not flagged[q]:
+                    flagged[q] = True
+                    q += step
+        for k in range(n):
+            if flagged[k]:
+                results[idxs[k]]["pic_flag"] = True
+    return len(groups)
+
+
+class _BatiIndex:
+    """Index spatial en mémoire (grille) d'une couche de bâtiments (OGR)."""
+
+    def __init__(self, path, pts, buffer_m, log_fn):
+        from osgeo import ogr, osr
+        ds = ogr.Open(path)
+        if ds is None:
+            raise RuntimeError("Couche bâtiments illisible : " + path)
+        layer = ds.GetLayer(0)
+        wgs = osr.SpatialReference()
+        wgs.ImportFromEPSG(4326)
+        wgs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        srs = layer.GetSpatialRef()
+        if srs is None:
+            log_fn("  [!] Bâtiments sans CRS : WGS84 supposé")
+            srs = wgs
+        else:
+            srs = srs.Clone()
+            srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        self.geo = bool(srs.IsGeographic())
+        self.tr = None if srs.IsSame(wgs) else osr.CoordinateTransformation(wgs, srs)
+        self.buf = buffer_m / 111320.0 if self.geo else float(buffer_m)
+        self.cell = self.buf * 4.0
+        self.ogr = ogr
+        self.grid = {}
+        self.geoms = []
+
+        xs, ys = [], []
+        for p in pts:
+            x, y = self._to_layer(p["lon"], p["lat"])
+            xs.append(x); ys.append(y)
+        if not xs:
+            return
+        layer.SetSpatialFilterRect(min(xs) - self.buf, min(ys) - self.buf,
+                                   max(xs) + self.buf, max(ys) + self.buf)
+        for feat in layer:
+            g = feat.GetGeometryRef()
+            if g is None or g.IsEmpty():
+                continue
+            g = g.Clone()
+            minx, maxx, miny, maxy = g.GetEnvelope()
+            c0 = int((minx - self.buf) // self.cell); c1 = int((maxx + self.buf) // self.cell)
+            r0 = int((miny - self.buf) // self.cell); r1 = int((maxy + self.buf) // self.cell)
+            if (c1 - c0 + 1) * (r1 - r0 + 1) > 2500:
+                continue          # polygone anormalement grand : ignoré
+            gi = len(self.geoms)
+            self.geoms.append(g)
+            for cc in range(c0, c1 + 1):
+                for rr in range(r0, r1 + 1):
+                    self.grid.setdefault((cc, rr), []).append(gi)
+        log_fn("  Bâtiments : " + str(len(self.geoms)) + " polygones charges")
+
+    def _to_layer(self, lon, lat):
+        if self.tr is None:
+            return lon, lat
+        x, y, _ = self.tr.TransformPoint(lon, lat)
+        return x, y
+
+    def near(self, lon, lat):
+        x, y = self._to_layer(lon, lat)
+        cand = self.grid.get((int(x // self.cell), int(y // self.cell)))
+        if not cand:
+            return False
+        pg = self.ogr.Geometry(self.ogr.wkbPoint)
+        pg.AddPoint_2D(x, y)
+        for gi in cand:
+            if self.geoms[gi].Distance(pg) <= self.buf:
+                return True
+        return False
+
+
+def _fuse_altitudes(pts, results, fab_vals):
+    """Altitude finale vertex par vertex :
+       - sans alerte                       -> GLO30 (altitude corrigée)
+       - alerte + valeur terrain nu dispo  -> FABDEM
+       - alerte PIC sans terrain nu        -> INTERP (interpolation le long de la ligne
+                                              entre les deux vertices sains les plus proches)
+       - autre alerte (BATI, ECART_DEM2)   -> GLO30_ALERTE (valeur gardée, à vérifier)
+    """
+    for r in results:
+        r["alt_final"] = r["alt_corr"]
+        r["source"] = "GLO30" if r["alt_corr"] is not None else "NODATA"
+        r["dist_interp"] = None
+    for i, r in enumerate(results):
+        if r["alt_corr"] is None or not r["alerte"]:
+            continue
+        fv = fab_vals.get(i)
+        if fv is not None:
+            r["alt_final"] = round(fv, 3)
+            r["source"] = "FABDEM"
+        else:
+            r["source"] = "GLO30_ALERTE"
+    n_interp = 0
+    for idxs, cum in _line_groups(pts, results):
+        anchors = [k for k, i in enumerate(idxs)
+                   if results[i]["alt_corr"] is not None and not results[i]["alerte"]]
+        if len(anchors) < 2:
+            continue
+        a_cum = [cum[k] for k in anchors]
+        for k, i in enumerate(idxs):
+            r = results[i]
+            if r["source"] != "GLO30_ALERTE" or not r.get("pic_flag"):
+                continue
+            q = bisect_left(a_cum, cum[k])
+            if q <= 0 or q >= len(anchors):
+                continue          # pas d'ancre de chaque côté : on garde GLO30_ALERTE
+            ka, kb = anchors[q - 1], anchors[q]
+            za = results[idxs[ka]]["alt_corr"]
+            zb = results[idxs[kb]]["alt_corr"]
+            da, db = cum[k] - cum[ka], cum[kb] - cum[k]
+            if da + db <= 0:
+                continue
+            r["alt_final"] = round(za + (zb - za) * da / (da + db), 3)
+            r["source"] = "INTERP"
+            r["dist_interp"] = round(max(da, db), 1)
+            n_interp += 1
+    return n_interp
+
+
+def _median(vals):
+    v = sorted(vals)
+    n = len(v)
+    if n == 0:
+        return 0.0
+    return v[n // 2] if n % 2 else 0.5 * (v[n // 2 - 1] + v[n // 2])
+
+
+def _apply_controls(results, ecart_max):
+    """Construit alerte + qualite_finale à partir des contrôles disponibles."""
+    for r in results:
+        al = []
+        if r.get("bati"):
+            al.append("BATI")
+        e = r.get("ecart2")
+        if e is not None and abs(e) > ecart_max:
+            al.append("ECART_DEM2")
+        if r.get("pic_flag"):
+            al.append("PIC")
+        r["alerte"] = ";".join(al)
+        base = r["qualite"]
+        if al and (base.startswith("FIABLE") or base.startswith("ACCEPTABLE")):
+            r["qualite_finale"] = "INCERTAINE"
+        else:
+            r["qualite_finale"] = base
+
+
 # ─── Fonction principale ──────────────────────────────────────────────────────
+
+_LAT_KEYS = ("latitude", "lat", "y")
+_LON_KEYS = ("longitude", "lon", "lng", "x")
+
+
+def _load_points(path, epsg_csv=4326):
+    """Lit un CSV de points. Colonnes latitude/longitude (ou lat/lon, y/x), name/id facultatif.
+    Si epsg_csv != 4326, les coordonnees sont reprojetees en WGS84."""
+    from ._common import detect_sep
+    sep = detect_sep(path)
+    with open(path, newline="", encoding="utf-8-sig") as f:
+        rd = csv.DictReader(f, delimiter=sep)
+        hdr = {(h or "").strip().lower(): h for h in (rd.fieldnames or [])}
+        kl = next((hdr[k] for k in _LAT_KEYS if k in hdr), None)
+        ko = next((hdr[k] for k in _LON_KEYS if k in hdr), None)
+        kn = next((hdr[k] for k in ("name", "id", "nom") if k in hdr), None)
+        if kl is None or ko is None:
+            raise ValueError("Colonnes latitude/longitude (ou lat/lon, y/x) introuvables. "
+                             "En-tetes lus : " + str(rd.fieldnames))
+        raw = []
+        for row in rd:
+            try:
+                raw.append((float(str(row[ko]).replace(",", ".")),
+                            float(str(row[kl]).replace(",", ".")),
+                            (row.get(kn) or "") if kn else ""))
+            except (ValueError, TypeError, KeyError):
+                pass
+    tr = None
+    if int(epsg_csv) != 4326:
+        from osgeo import osr
+        src = osr.SpatialReference()
+        if src.ImportFromEPSG(int(epsg_csv)) != 0:
+            raise ValueError("EPSG invalide : " + str(epsg_csv))
+        dst = osr.SpatialReference()
+        dst.ImportFromEPSG(4326)
+        src.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        dst.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        tr = osr.CoordinateTransformation(src, dst)
+    pts = []
+    for x, y, nm in raw:
+        if tr is not None:
+            x, y, _ = tr.TransformPoint(x, y)
+        pts.append({"lat": y, "lon": x, "name": nm})
+    return pts
+
 
 def run(params, log_fn, progress_fn, stop_fn=None):
     """
@@ -357,6 +644,12 @@ def run(params, log_fn, progress_fn, stop_fn=None):
         gps_csv      : str   — CSV levés GPS (optionnel, pour calibration)
         gps_epsg     : int   — EPSG des GPS (défaut 32630 = UTM 30N)
         radius_gps_m : float — rayon recherche GPS en m (défaut 500)
+        dem2_tif     : str   — 2e DEM de contrôle (optionnel, ex. SRTM si GLO-30 en 1er)
+        bati_path    : str   — couche de bâtiments (shp/gpkg/geojson, optionnel)
+        bati_buffer_m: float — distance d'alerte au bâti (défaut 15 m)
+        ecart_max_m  : float — écart inter-DEM déclenchant l'alerte (défaut 5 m)
+        pic_max_m    : float — écart de pic déclenchant l'alerte (défaut 5 m)
+        fabdem_tif   : str   — terrain nu FABDEM (optionnel, usage NON COMMERCIAL, dérivé de GLO-30)
     """
     input_csv    = params["input_csv"]
     output_csv   = params["output_csv"]
@@ -366,9 +659,16 @@ def run(params, log_fn, progress_fn, stop_fn=None):
     methode_cal  = params.get("methode_cal", "idw")   # idw | regression | biais
     gps_epsg     = int(params.get("gps_epsg", 32630))
     radius_gps_m = float(params.get("radius_gps_m", _RADIUS_GPS_M))
+    dem2_tif     = str(params.get("dem2_tif", "") or "").strip()
+    bati_path    = str(params.get("bati_path", "") or "").strip()
+    bati_buf_m   = float(params.get("bati_buffer_m", _BATI_BUFFER_M))
+    ecart_max    = float(params.get("ecart_max_m", _ECART_DEM2_M))
+    pic_max      = float(params.get("pic_max_m", _PIC_M))
+    fabdem_tif   = str(params.get("fabdem_tif", "") or "").strip()
+    epsg_csv     = int(params.get("epsg_csv", 4326) or 4326)
 
     log_fn("=" * 58)
-    log_fn("  Etape 2 -- Altitudes DEM  [AEP Tools V2.0]")
+    log_fn("  Etape 3 -- Altitudes DEM")
     log_fn("=" * 58)
 
     for f, label in [(input_csv, "CSV"), (dem_tif, "DEM")]:
@@ -380,18 +680,8 @@ def run(params, log_fn, progress_fn, stop_fn=None):
     except ImportError:
         raise RuntimeError("GDAL manquant. Lancer depuis QGIS.")
 
-    # ── Chargement CSV vertices ───────────────────────────────────────────────
-    pts = []
-    with open(input_csv, newline="", encoding="utf-8") as f:
-        for row in csv.DictReader(f):
-            try:
-                pts.append({
-                    "lat":  float(row["latitude"]),
-                    "lon":  float(row["longitude"]),
-                    "name": row.get("name", ""),
-                })
-            except (ValueError, KeyError):
-                pass
+    # ── Chargement CSV vertices (colonnes tolerantes, EPSG optionnel) ─────────
+    pts = _load_points(input_csv, epsg_csv)
     log_fn("  CSV       : " + os.path.basename(input_csv)
            + "  (" + str(len(pts)) + " vertices)")
     progress_fn(5)
@@ -406,8 +696,14 @@ def run(params, log_fn, progress_fn, stop_fn=None):
     from osgeo import osr as _osr
     _s = _osr.SpatialReference(); _s.ImportFromWkt(srs_wkt)
     epsg = _s.GetAttrValue("AUTHORITY", 1) or "?"
-    px_deg = abs(gt[1])
-    px_m   = px_deg * 111320
+    is_geo = bool(_s.IsGeographic())
+    if is_geo:
+        px_x_base = abs(gt[1]) * 111320.0     # x ramené à la latitude du vertex plus bas
+        px_y_m    = abs(gt[5]) * 111320.0
+    else:
+        px_x_base = abs(gt[1])
+        px_y_m    = abs(gt[5])
+    px_m = px_y_m
     log_fn("  DEM CRS   : EPSG:" + str(epsg)
            + "  |  Resolution : " + str(round(px_m)) + " m/pixel")
     log_fn("  Methode   : " + methode)
@@ -472,6 +768,25 @@ def run(params, log_fn, progress_fn, stop_fn=None):
         except Exception:
             use_gps = False
 
+    # ── Contrôles optionnels : 2e DEM et bâtiments ────────────────────────────
+    ds2 = None
+    if dem2_tif:
+        if os.path.exists(dem2_tif):
+            ds2, gt2, band2, nd2, srs2 = _open_dem(dem2_tif)
+            transform2 = _make_transformer(srs2)
+            log_fn("  DEM controle : " + os.path.basename(dem2_tif))
+        else:
+            log_fn("  [!] DEM de controle introuvable : " + dem2_tif)
+    bati_idx = None
+    if bati_path:
+        if os.path.exists(bati_path):
+            try:
+                bati_idx = _BatiIndex(bati_path, pts, bati_buf_m, log_fn)
+            except Exception as e:
+                log_fn("  [!] Bâtiments ignorés : " + str(e)[:100])
+        else:
+            log_fn("  [!] Couche bâtiments introuvable : " + bati_path)
+
     # ── Extraction principale ─────────────────────────────────────────────────
     results = []
     n_ok = n_nd = 0
@@ -497,7 +812,10 @@ def run(params, log_fn, progress_fn, stop_fn=None):
             n_nd += 1
         else:
             # Pente locale
-            slope = _compute_slope(x_dem, y_dem, ds, gt, band, nd, px_m=px_m)
+            px_x_m = (px_x_base * math.cos(math.radians(pt["lat"]))
+                      if is_geo else px_x_base)
+            slope = _compute_slope(x_dem, y_dem, ds, gt, band, nd,
+                                   px_m=px_x_m, px_y_m=px_y_m)
             qualite, incert = _classify_qualite(slope)
 
             # Calibration GPS
@@ -545,6 +863,93 @@ def run(params, log_fn, progress_fn, stop_fn=None):
     ds = None
     elapsed = time.time() - t0
 
+    # ── Contrôles de cohérence ────────────────────────────────────────────────
+    for r in results:
+        r.update({"alt2": None, "ecart2": None, "bati": None, "pic": None})
+    ecarts_bruts = []
+    if ds2 is not None:
+        for i, pt in enumerate(pts):
+            if results[i]["alt_dem"] is None:
+                continue
+            x2, y2 = transform2(pt["lon"], pt["lat"])
+            z2 = _sample_bilinear(x2, y2, ds2, gt2, band2, nd2)
+            if z2 is not None:
+                results[i]["alt2"] = z2
+                ecarts_bruts.append(results[i]["alt_dem"] - z2)
+        ds2 = None
+        if ecarts_bruts:
+            med = _median(ecarts_bruts)
+            for r in results:
+                if r["alt2"] is not None:
+                    r["ecart2"] = round(r["alt_dem"] - r["alt2"] - med, 2)
+            absd = sorted(abs(r["ecart2"]) for r in results if r["ecart2"] is not None)
+            log_fn("\n  Controle inter-DEM : biais median = " + str(round(med, 2)) + " m"
+                   + "  |  |ecart| median = " + str(round(_median(absd), 2)) + " m"
+                   + "  |  P90 = " + str(round(absd[int(0.9 * (len(absd) - 1))], 2)) + " m")
+            log_fn("  (le biais median est retire : il reflete surtout la difference de geoide)")
+            p90_abs = absd[int(0.9 * (len(absd) - 1))]
+            if abs(med) > 30.0 or p90_abs > 10.0 * ecart_max:
+                log_fn("  [!] 2e DEM INCOHERENT avec le DEM principal (biais median "
+                       + str(round(med, 1)) + " m, P90 " + str(round(p90_abs, 1)) + " m).")
+                log_fn("      Un vrai 2e DEM (ex. SRTM) differe de quelques metres seulement.")
+                log_fn("      Probable : surface interpolee (IDW), autre unite ou autre zone.")
+                log_fn("      Controle inter-DEM IGNORE (aucune alerte ECART_DEM2 generee).")
+                for r in results:
+                    r["ecart2"] = None
+    if bati_idx is not None:
+        for i, pt in enumerate(pts):
+            results[i]["bati"] = bool(bati_idx.near(pt["lon"], pt["lat"]))
+    n_lines_pic = _detect_spikes(pts, results, 2.0 * px_m, 6.0 * px_m, pic_max)
+    if n_lines_pic:
+        log_fn("  Controle des pics : " + str(n_lines_pic) + " lignes analysees")
+    _apply_controls(results, ecart_max)
+    # ── Terrain nu FABDEM (optionnel) ─────────────────────────────────────────
+    fab_vals = {}
+    if fabdem_tif:
+        if os.path.exists(fabdem_tif):
+            dsf, gtf, bandf, ndf, srsf = _open_dem(fabdem_tif)
+            trf = _make_transformer(srsf)
+            diffs = []
+            for i, pt in enumerate(pts):
+                if results[i]["alt_dem"] is None:
+                    continue
+                xf_, yf_ = trf(pt["lon"], pt["lat"])
+                zf = _sample_bilinear(xf_, yf_, dsf, gtf, bandf, ndf)
+                if zf is None:
+                    continue
+                corr_i = results[i]["alt_dem"] - results[i]["alt_corr"]
+                fab_vals[i] = zf - corr_i
+                if not results[i]["alerte"]:
+                    diffs.append(zf - results[i]["alt_dem"])
+            dsf = None
+            if diffs:
+                mdiff = _median(diffs)
+                log_fn("\n  FABDEM : ecart median FABDEM - GLO30 sur vertices sains = "
+                       + str(round(mdiff, 2)) + " m")
+                if abs(mdiff) > 1.5:
+                    log_fn("  [!] Ecart median eleve : FABDEM derive de GLO-30, verifier que le DEM "
+                           "principal est bien GLO-30 (referentiel vertical identique).")
+            log_fn("  FABDEM : donnees NON COMMERCIALES (CC BY-NC-SA 4.0), citer la source.")
+        else:
+            log_fn("  [!] FABDEM introuvable : " + fabdem_tif)
+    n_interp = _fuse_altitudes(pts, results, fab_vals)
+    src_cnt = {}
+    for r in results:
+        src_cnt[r["source"]] = src_cnt.get(r["source"], 0) + 1
+    log_fn("\n  Altitude finale par source : "
+           + "  ".join(k + "=" + str(v) for k, v in sorted(src_cnt.items())))
+    n_alert = sum(1 for r in results if r["alerte"])
+    if n_alert:
+        log_fn("\n  [!] " + str(n_alert) + " / " + str(len(results))
+               + " vertices avec alerte (BATI / ECART_DEM2 / PIC) -> qualite_finale = INCERTAINE")
+        for tag in ("BATI", "ECART_DEM2", "PIC"):
+            c = sum(1 for r in results if tag in r["alerte"].split(";"))
+            if c:
+                log_fn("      " + tag.ljust(11) + ": " + str(c))
+    if bati_idx is None and not ecarts_bruts:
+        log_fn("\n  [i] Aucun controle de coherence actif : en zone batie, la pente seule"
+               " ne detecte pas l'erreur d'un MNS. Fournir un 2e DEM et/ou une couche de batiments.")
+
     # ── Statistiques ─────────────────────────────────────────────────────────
     valid = [r for r in results if r["alt_dem"] is not None]
     log_fn("\n  Duree     : " + str(round(elapsed, 1)) + " s")
@@ -580,7 +985,9 @@ def run(params, log_fn, progress_fn, stop_fn=None):
             "latitude", "longitude", "name",
             "altitude_dem_m", "altitude_corrigee_m",
             "pente_deg", "qualite", "incertitude_m",
-            "methode", "n_gps_voisins"
+            "methode", "n_gps_voisins",
+            "ecart_dem2_m", "bati", "ecart_pic_m", "alerte", "qualite_finale",
+            "altitude_m", "source_altitude", "dist_interp_m"
         ])
         for pt, r in zip(pts, results):
             w.writerow([
@@ -594,12 +1001,22 @@ def run(params, log_fn, progress_fn, stop_fn=None):
                 str(r["incert"]),
                 r["methode"],
                 str(r["n_gps"]),
+                str(r["ecart2"]) if r["ecart2"] is not None else "",
+                "" if r["bati"] is None else ("OUI" if r["bati"] else "NON"),
+                str(r["pic"]) if r["pic"] is not None else "",
+                r["alerte"],
+                r["qualite_finale"],
+                str(r["alt_final"]) if r["alt_final"] is not None else "",
+                r["source"],
+                str(r["dist_interp"]) if r["dist_interp"] is not None else "",
             ])
 
     out_ko = os.path.getsize(output_csv) / 1024
     progress_fn(100)
     log_fn("\n  [OK] " + output_csv + " (" + str(round(out_ko)) + " Ko)")
     log_fn("  Colonnes cles pour WaterGEMS/EPANET :")
-    log_fn("    altitude_corrigee_m  <- altitude a importer")
-    log_fn("    qualite              <- filtrer sur FIABLE/ACCEPTABLE")
+    log_fn("    altitude_m           <- altitude FINALE (lue par les etapes 4 et 5)")
+    log_fn("    source_altitude      <- GLO30 / FABDEM / INTERP / GLO30_ALERTE")
+    log_fn("    qualite_finale       <- filtrer sur FIABLE/ACCEPTABLE (tient compte des alertes)")
+    log_fn("    alerte               <- verifier manuellement les vertices signales")
     log_fn("    incertitude_m        <- tolerance hydraulique (+/-3m = 0.3 bar)")

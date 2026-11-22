@@ -1,5 +1,5 @@
 """
-AEP Tools — Boîte de dialogue principale (5 onglets)
+AEP Tools — Boîte de dialogue principale (6 étapes)
 """
 import os
 from qgis.PyQt.QtWidgets import (
@@ -11,6 +11,8 @@ from qgis.PyQt.QtWidgets import (
 )
 from qgis.PyQt.QtCore import Qt, QThread, pyqtSignal, QSize
 from qgis.PyQt.QtGui import QFont, QColor, QTextCursor
+
+from ._version import get_version
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -205,7 +207,7 @@ def _file_row(label_text, placeholder="", is_dir=False, filter_str=""):
     layout.setSpacing(6)
     edit = QLineEdit()
     edit.setPlaceholderText(placeholder)
-    edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+    edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
     btn = QPushButton("📂  Parcourir")
     btn.setObjectName("browse_btn")
     btn.setFixedWidth(115)
@@ -241,7 +243,7 @@ def _save_file_row(label_text, placeholder="", filter_str=""):
     layout.setSpacing(6)
     edit = QLineEdit()
     edit.setPlaceholderText(placeholder)
-    edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+    edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
     btn = QPushButton("💾  Enregistrer")
     btn.setObjectName("browse_btn")
     btn.setFixedWidth(115)
@@ -269,7 +271,7 @@ def _make_log_box():
 
 def _append_log(log_box, msg, color=None):
     cursor = log_box.textCursor()
-    cursor.movePosition(QTextCursor.End)
+    cursor.movePosition(QTextCursor.MoveOperation.End)
     log_box.setTextCursor(cursor)
     if color:
         log_box.setTextColor(QColor(color))
@@ -325,12 +327,12 @@ class TabBase(QWidget):
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
         inner = QWidget()
-        inner.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        inner.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         main_layout = QVBoxLayout(inner)
         main_layout.setContentsMargins(14, 14, 14, 14)
         main_layout.setSpacing(10)
@@ -344,7 +346,7 @@ class TabBase(QWidget):
         icon_lbl = QLabel(icon)
         icon_lbl.setFont(QFont("", 20))
         icon_lbl.setFixedWidth(36)
-        icon_lbl.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
+        icon_lbl.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
         text_col = QVBoxLayout()
         text_col.setSpacing(3)
         title_lbl = QLabel(title)
@@ -361,16 +363,16 @@ class TabBase(QWidget):
 
         # ── Séparateur ───────────────────────────────────────────────
         sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
+        sep.setFrameShape(QFrame.Shape.HLine)
         sep.setStyleSheet("color:#c0c0c0;")
         main_layout.addWidget(sep)
 
         # ── Paramètres ───────────────────────────────────────────────
         self.params_group = QGroupBox("Paramètres")
         self.form = QFormLayout(self.params_group)
-        self.form.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
-        self.form.setFormAlignment(Qt.AlignLeft | Qt.AlignTop)
+        self.form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        self.form.setFormAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         self.form.setSpacing(10)
         self.form.setContentsMargins(10, 8, 10, 10)
         main_layout.addWidget(self.params_group)
@@ -413,7 +415,7 @@ class TabBase(QWidget):
         raise NotImplementedError
 
     # Clés dont la valeur peut être vide (champs optionnels)
-    _OPTIONAL_KEYS = {"gps_csv", "col_x", "col_y"}
+    _OPTIONAL_KEYS = {"gps_csv", "col_x", "col_y", "dem2_tif", "fabdem_tif"}
 
     def _on_run(self):
         params = self._get_params()
@@ -459,24 +461,29 @@ class Tab00_DEM(TabBase):
         super().__init__(
             title='Etape 2 - Telecharger DEM',
             description=(
-                'Telecharge le DEM Copernicus GLO-30 (30m). '
-                'Source officielle ESA, gratuite, sans inscription. '
-                'Prerequis de l etape 3 (Altitudes) et etape 6 (Extraction CSV).'
+                'Telecharge un DEM de 30 m, gratuit, sans inscription ni cle : '
+                'Copernicus GLO-30 (ESA, radar TanDEM-X 2011-2015, recommande en 1er choix) '
+                'ou SRTM (NASA, fevrier 2000). Les deux sont des modeles de SURFACE (toits, arbres). '
+                'Pour controler un DEM par un 2e DEM independant, telecharger les deux sources '
+                'sur la meme zone. Prerequis de l etape 3 (Altitudes).'
             ),
             icon=chr(0x1f30d),
         )
 
 
     def _fill_params(self):
-        lbl_source = QLabel('Copernicus GLO-30  —  30 m  —  gratuit, sans clé')
-        lbl_source.setStyleSheet(
-            'font-size:11px; font-weight:bold; color:#1B5E20;'
-            'background:#E8F5E9; border-radius:4px; padding:4px 8px;'
-        )
-        self.form.addRow('Source DEM :', lbl_source)
+        self.combo_source = QComboBox()
+        self.combo_source.addItem('Copernicus GLO-30 (ESA, 2011-2015)  -  30 m  -  recommande', 'copernicus')
+        self.combo_source.addItem('SRTM (NASA, 2000)  -  30 m', 'srtm')
+        self.combo_source.currentIndexChanged.connect(self._on_source_changed)
+        self.form.addRow('Source DEM :', self.combo_source)
+        self.lbl_source = QLabel()
+        self.lbl_source.setWordWrap(True)
+        self.lbl_source.setStyleSheet('color:#1565C0; font-size:10px; background:#E3F2FD;'
+                                      'border-radius:4px; padding:6px;')
+        self.form.addRow('', self.lbl_source)
 
         self.combo_mode = QComboBox()
-        self.combo_mode.addItem('preconfigure - Emprise par defaut', 'preconfigure')
         self.combo_mode.addItem('auto         - Depuis le CSV AEP',     'auto')
         self.combo_mode.addItem('manuel       - Coordonnees manuelles', 'manuel')
         self.combo_mode.currentIndexChanged.connect(self._on_mode_changed)
@@ -492,6 +499,22 @@ class Tab00_DEM(TabBase):
         self.spin_margin.setFixedWidth(120)
         self.form.addRow('Marge bbox :', self.spin_margin)
 
+        # Zone manuelle (degres decimaux WGS84)
+        self.spin_bbox = {}
+        for key, label, lo, hi, val in (
+                ('lat_min', 'Latitude min :', -90, 90, 35.0),
+                ('lat_max', 'Latitude max :', -90, 90, 36.0),
+                ('lon_min', 'Longitude min :', -180, 180, 0.0),
+                ('lon_max', 'Longitude max :', -180, 180, 1.0)):
+            sp = QDoubleSpinBox()
+            sp.setDecimals(4)
+            sp.setRange(lo, hi)
+            sp.setValue(val)
+            sp.setSuffix(' deg')
+            sp.setFixedWidth(130)
+            self.spin_bbox[key] = sp
+            self.form.addRow(label, sp)
+
         row2, self.e_output_dem = _save_file_row('', 'dem.tif', filter_str='GeoTIFF (*.tif *.tiff)')
         self.form.addRow('DEM sortie :', row2)
 
@@ -499,6 +522,14 @@ class Tab00_DEM(TabBase):
         self.form.addRow('Dossier temp :', row3)
 
         self._on_mode_changed(0)
+        self._on_source_changed(0)
+
+    def _on_source_changed(self, idx):
+        from .scripts.dem_download import SOURCES_INFO
+        i = SOURCES_INFO.get(self.combo_source.currentData(), {})
+        self.lbl_source.setText(
+            "Vous allez telecharger : " + i.get("nom", "") + ".\n" + i.get("detail", "")
+            + ".\nModele de SURFACE : toits et vegetation inclus, ce n'est pas un MNT.")
 
     def _set_section_visible(self, widgets, visible):
         for w in widgets:
@@ -509,8 +540,10 @@ class Tab00_DEM(TabBase):
 
     def _on_mode_changed(self, idx):
         is_auto = (self.combo_mode.currentData() == 'auto')
+        is_manuel = (self.combo_mode.currentData() == 'manuel')
         csv_w = self.e_input_csv.parent()
         self._set_section_visible([csv_w, self.spin_margin], is_auto)
+        self._set_section_visible(list(self.spin_bbox.values()), is_manuel)
 
     def _get_params(self):
         output_dem = self.e_output_dem.text().strip()
@@ -519,9 +552,13 @@ class Tab00_DEM(TabBase):
             'input_csv':   self.e_input_csv.text().strip(),
             'output_dem':  output_dem,
             'output_dir':  output_dir,
-            'dem_source':  'copernicus',
+            'dem_source':  self.combo_source.currentData(),
             'mode_bbox':   self.combo_mode.currentData(),
             'bbox_margin': self.spin_margin.value(),
+            'lat_min':     self.spin_bbox['lat_min'].value(),
+            'lat_max':     self.spin_bbox['lat_max'].value(),
+            'lon_min':     self.spin_bbox['lon_min'].value(),
+            'lon_max':     self.spin_bbox['lon_max'].value(),
         }
 
     def _get_script_module(self):
@@ -590,9 +627,12 @@ class Tab02_Altitudes(TabBase):
             title="Étape 3 — Altitudes DEM",
             description=(
                 "Extrait l'altitude de chaque vertex depuis un DEM local."
-                " V2.1 : validé sur 4 203 pts GPS — RMSE 1.43 m, LE90 2.25 m,"
-                " 96.6 % dans ±3 m (APS). Classification automatique de fiabilité par pente"
-                " (FIABLE/ACCEPTABLE/INCERTAINE/NON_FIABLE)."
+                " Le DEM est un MNS (surface) : en zone bâtie ou boisée l'altitude peut"
+                " être fausse même si la pente est faible. Fournir un 2e DEM et/ou une"
+                " couche de bâtiments pour obtenir des alertes de cohérence."
+                " Les vertices signalés sont remplacés par FABDEM (si fourni) ou par"
+                " interpolation le long de la conduite (colonnes altitude_m et"
+                " source_altitude)."
             ),
             icon="\u26f0\ufe0f",
         )
@@ -605,9 +645,16 @@ class Tab02_Altitudes(TabBase):
         self.e_input_csv.textChanged.connect(self._auto_output_csv)
         self.form.addRow("CSV entree :", row)
 
+        self.spin_epsg_csv = QSpinBox()
+        self.spin_epsg_csv.setRange(1, 99999)
+        self.spin_epsg_csv.setValue(4326)
+        self.spin_epsg_csv.setFixedWidth(100)
+        self.spin_epsg_csv.setToolTip("4326 pour la sortie de l'etape 1. Autre EPSG : X/Y reprojetes en WGS84.")
+        self.form.addRow("EPSG du CSV :", self.spin_epsg_csv)
+
         # DEM
         row2, self.e_dem = _file_row(
-            "", "DEM GeoTIFF — Copernicus GLO-30, SRTM, CopDEM-GLO-10...",
+            "", "DEM GeoTIFF (etape 2 : Copernicus GLO-30 ou SRTM)",
             filter_str="GeoTIFF (*.tif *.tiff)"
         )
         self.form.addRow("DEM raster :", row2)
@@ -631,7 +678,7 @@ class Tab02_Altitudes(TabBase):
 
         # Separateur optionnel
         sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
+        sep.setFrameShape(QFrame.Shape.HLine)
         sep.setStyleSheet("color:#c0c0c0;")
         self.form.addRow("", sep)
 
@@ -680,12 +727,60 @@ class Tab02_Altitudes(TabBase):
         # Masquer par défaut (champ GPS vide)
         self._set_cal_visible(False)
 
+        # ── Contrôles de cohérence (sans levé topo) ──────────────────────
+        sep2 = QFrame()
+        sep2.setFrameShape(QFrame.Shape.HLine)
+        sep2.setStyleSheet("color:#c0c0c0;")
+        self.form.addRow("", sep2)
+
+        row5, self.e_dem2 = _file_row(
+            "", "2e DEM de controle, ex. SRTM si GLO-30 en 1er (optionnel)",
+            filter_str="GeoTIFF (*.tif *.tiff)"
+        )
+        self.form.addRow("2e DEM (contrôle) :", row5)
+
+        row6, self.e_bati = _file_row(
+            "", "Couche de batiments SHP/GPKG/GeoJSON (optionnel)",
+            filter_str="Vecteur (*.shp *.gpkg *.geojson *.json)"
+        )
+        self.form.addRow("Bâtiments :", row6)
+
+        row7, self.e_fabdem = _file_row(
+            "", "FABDEM (terrain nu) GeoTIFF — optionnel, USAGE NON COMMERCIAL (CC BY-NC-SA)",
+            filter_str="GeoTIFF (*.tif *.tiff)"
+        )
+        self.form.addRow("Terrain nu (FABDEM) :", row7)
+
+        self.spin_ecart = QDoubleSpinBox()
+        self.spin_ecart.setRange(0.5, 100)
+        self.spin_ecart.setSingleStep(0.5)
+        self.spin_ecart.setValue(5.0)
+        self.spin_ecart.setSuffix(" m")
+        self.spin_ecart.setFixedWidth(120)
+        self.form.addRow("Alerte écart 2 DEM :", self.spin_ecart)
+
+        self.spin_pic = QDoubleSpinBox()
+        self.spin_pic.setRange(0.5, 100)
+        self.spin_pic.setSingleStep(0.5)
+        self.spin_pic.setValue(5.0)
+        self.spin_pic.setSuffix(" m")
+        self.spin_pic.setFixedWidth(120)
+        self.form.addRow("Alerte pic (profil) :", self.spin_pic)
+
+        self.spin_bati = QDoubleSpinBox()
+        self.spin_bati.setRange(0, 200)
+        self.spin_bati.setSingleStep(5)
+        self.spin_bati.setValue(15.0)
+        self.spin_bati.setSuffix(" m")
+        self.spin_bati.setFixedWidth(120)
+        self.form.addRow("Distance au bâti :", self.spin_bati)
+
         # Info methode
         info = QLabel(
-            "── Résultats validés V2.1 (N=4 203 pts GPS) ──\n"
-            "  ME = +0.29 m  |  RMSE = 1.43 m  |  LE90 = 2.25 m\n"
-            "  96.6 % dans ±3 m ✅  |  86.9 % dans ±2 m\n"
-            "  Biais normalísé ME/σ = 0.21  (non-Gaussien : LE90 recommandé)"
+            "── Résultat rapporté par l'auteur (V2.1) ──\n"
+            "  N = 4 203 pts GPS  |  RMSE = 1.43 m  |  LE90 = 2.25 m\n"
+            "  Zone, occupation du sol et calibration GPS : à documenter.\n"
+            "  À vérifier sur vos propres points avant usage en zone bâtie."
         )
         info.setWordWrap(True)
         info.setStyleSheet(
@@ -715,6 +810,7 @@ class Tab02_Altitudes(TabBase):
     def _get_params(self):
         return {
             "input_csv":     self.e_input_csv.text().strip(),
+            "epsg_csv":      self.spin_epsg_csv.value(),
             "dem_tif":       self.e_dem.text().strip(),
             "output_csv":    self.e_output_csv.text().strip(),
             "methode":       self.combo_methode.currentData(),
@@ -722,6 +818,12 @@ class Tab02_Altitudes(TabBase):
             "methode_cal":   self.combo_cal_methode.currentData(),
             "gps_epsg":      self.spin_epsg.value(),
             "radius_gps_m":  self.spin_radius.value(),
+            "dem2_tif":      self.e_dem2.text().strip(),
+            "bati_path":     self.e_bati.text().strip(),
+            "ecart_max_m":   self.spin_ecart.value(),
+            "pic_max_m":     self.spin_pic.value(),
+            "fabdem_tif":    self.e_fabdem.text().strip(),
+            "bati_buffer_m": self.spin_bati.value(),
         }
 
     def _on_run(self):
@@ -885,133 +987,158 @@ class Tab04_ExtracterAlt(TabBase):
 # ═══════════════════════════════════════════════════════════════════════
 
 
-class Tab05_ExtractCSV(TabBase):
-    """
-    Onglet 6 : Extraction d'altitudes depuis DEM pour un CSV quelconque.
-    L'utilisateur fournit un CSV avec colonnes X/Y ou Lon/Lat.
-    Le script retourne le meme CSV avec une colonne altitude_dem ajoutee.
-    """
+class Tab06_Hydro(TabBase):
     def __init__(self):
         super().__init__(
-            title='Etape 6 - Altitudes depuis CSV',
+            title="Étape 6 — Hydraulique : cotes et nœuds sensibles",
             description=(
-                'Ajoutez des altitudes a n\'importe quel fichier CSV contenant des coordonnees. '
-                'Detection automatique des colonnes X/Y ou Longitude/Latitude. '
-                'Supporte les systemes UTM, WGS84 et tout EPSG valide.'
+                "Le DEM est un modèle de surface : en zone bâtie il donne les toits, pas le sol."
+                " Cette étape lit les réservoirs du modèle EPANET, déduit la cote du sol de la"
+                " pression statique mesurée (Z = H réservoir − P − hauteur du manomètre), la compare"
+                " aux levés (jamais moyennée si elle les contredit), mesure l'erreur réelle du DEM,"
+                " puis calcule, avec les charges du modèle, les nœuds dont l'altitude peut changer"
+                " la conclusion sur la pression, et où mesurer en priorité."
             ),
-            icon='\U0001f4cd',
+            icon="\U0001F4A7",
         )
+
+    def _spin(self, lo, hi, val, dec=2, suffix=" m", width=110):
+        sp = QDoubleSpinBox()
+        sp.setDecimals(dec)
+        sp.setRange(lo, hi)
+        sp.setValue(val)
+        sp.setSuffix(suffix)
+        sp.setFixedWidth(width)
+        return sp
+
+    def _sep(self):
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet("color:#c0c0c0;")
+        self.form.addRow("", sep)
 
     def _fill_params(self):
-        # ── CSV entree ─────────────────────────────────────────────────────
-        lbl_in = QLabel('Fichier CSV avec coordonnees (entree) :')
-        lbl_in.setStyleSheet('font-weight:bold; font-size:10px;')
-        self.form.addRow(lbl_in)
+        row, self.e_nodes = _file_row(
+            "", "Points de l'étape 4 (GeoJSON) ou CSV de l'étape 3",
+            filter_str="Nœuds (*.geojson *.json *.csv)")
+        self.form.addRow("Nœuds :", row)
+        row, self.e_inp = _file_row("", "Facultatif : modèle EPANET (.inp) pour lire les réservoirs",
+                                    filter_str="EPANET (*.inp)")
+        self.form.addRow("Modèle EPANET :", row)
+        row, self.e_charges = _file_row(
+            "", "Facultatif : CSV latitude, longitude, charge_m (charge EPANET, cas défavorable)",
+            filter_str="CSV (*.csv)")
+        self.form.addRow("Charges du modèle :", row)
+        row, self.e_mes = _file_row(
+            "", "Facultatif : CSV latitude, longitude, pression_m / pression_bar et/ou z_leve",
+            filter_str="CSV (*.csv)")
+        self.form.addRow("Mesures :", row)
+        row, self.e_zones = _file_row("", "Facultatif : polygones des zones urbaines (GeoJSON WGS84)",
+                                      filter_str="GeoJSON (*.geojson *.json)")
+        self.form.addRow("Zones urbaines :", row)
+        row, self.e_outdir = _file_row("", "Dossier de sortie", is_dir=True)
+        self.form.addRow("Dossier sortie :", row)
+        self._sep()
 
-        row, self.e_input_csv = _file_row(
-            '', 'Choisir le fichier CSV...', filter_str='CSV (*.csv *.txt)')
-        self.form.addRow('CSV entree :', row)
+        self.e_ref = QLineEdit()
+        self.e_ref.setPlaceholderText("ID du réservoir des mesures (vide si un seul)")
+        self.form.addRow("Source de référence :", self.e_ref)
+        self.e_sur = QLineEdit()
+        self.e_sur.setPlaceholderText("R1=152.3;T2=210  (cotes connues, remplacent le modèle)")
+        self.e_sur.setToolTip("Cote piézométrique (radier + hauteur d'eau) des réservoirs que vous "
+                              "connaissez. Indispensable pour un réservoir à niveau variable.")
+        self.form.addRow("Cotes saisies :", self.e_sur)
+        self.sp_hsrc = self._spin(-100, 9000, 0.0)
+        self.sp_hsrc.setToolTip("Seulement si aucune charge du modèle : charge de la source. 0 = non utilisée.")
+        self.form.addRow("Charge source (repli) :", self.sp_hsrc)
+        self.sp_dh = self._spin(0, 500, 10.0)
+        self.form.addRow("Perte de charge admise (repli) :", self.sp_dh)
+        self.sp_pmin = self._spin(0, 500, 15.0)
+        self.form.addRow("Pression de service mini :", self.sp_pmin)
+        self.sp_pmax = self._spin(1, 1000, 60.0)
+        self.form.addRow("Pression statique maxi :", self.sp_pmax)
+        self._sep()
 
-        # Info colonnes
-        lbl_hint = QLabel(
-            'Colonnes detectees automatiquement : X, Y, LON, LAT, LONGITUDE, LATITUDE\n'
-            'Ou specifiez manuellement ci-dessous (laisser vide = auto)')
-        lbl_hint.setStyleSheet('color:#555; font-size:9px;')
-        self.form.addRow('', lbl_hint)
+        self.sp_epsg_m = QSpinBox()
+        self.sp_epsg_m.setRange(1000, 999999)
+        self.sp_epsg_m.setValue(4326)
+        self.sp_epsg_m.setFixedWidth(110)
+        self.form.addRow("EPSG des mesures :", self.sp_epsg_m)
+        self.sp_epsg_c = QSpinBox()
+        self.sp_epsg_c.setRange(1000, 999999)
+        self.sp_epsg_c.setValue(4326)
+        self.sp_epsg_c.setFixedWidth(110)
+        self.form.addRow("EPSG des charges :", self.sp_epsg_c)
+        self.sp_shref = self._spin(0.01, 50, 0.30)
+        self.form.addRow("± sur H réservoir :", self.sp_shref)
+        self.sp_sman = self._spin(0.01, 50, 1.00)
+        self.form.addRow("± manomètre :", self.sp_sman)
+        self.sp_perte = self._spin(0, 100, 0.0)
+        self.form.addRow("Perte de charge résiduelle :", self.sp_perte)
+        self.sp_sperte = self._spin(0.01, 50, 0.50)
+        self.form.addRow("± perte résiduelle :", self.sp_sperte)
+        self.sp_sleve = self._spin(0.01, 50, 0.10)
+        self.form.addRow("± levé topographique :", self.sp_sleve)
+        self.sp_surb = self._spin(0.5, 100, 15.0, 1)
+        self.sp_surb.setToolTip("Incertitude (1 sigma) SUPPOSÉE du DEM en zone bâtie, utilisée tant "
+                                "que moins de 10 points de référence urbains ne l'ont pas mesurée.")
+        self.form.addRow("± DEM bâti (supposé) :", self.sp_surb)
+        self.sp_k = self._spin(1, 6, 2.5, 1, "")
+        self.form.addRow("Seuil de cohérence k :", self.sp_k)
+        self.sp_ray = self._spin(1, 500, 30.0, 0)
+        self.form.addRow("Rayon d'appariement mesures :", self.sp_ray)
+        self.sp_rc = self._spin(1, 1000, 50.0, 0)
+        self.form.addRow("Rayon d'appariement charges :", self.sp_rc)
+        self.sp_n = QSpinBox()
+        self.sp_n.setRange(1, 500)
+        self.sp_n.setValue(20)
+        self.sp_n.setFixedWidth(110)
+        self.form.addRow("Nœuds à mesurer :", self.sp_n)
+        self.sp_dmin = self._spin(10, 10000, 300.0, 0)
+        self.form.addRow("Distance mini entre relevés :", self.sp_dmin)
 
-        # Colonnes manuelles
-        row_cols = QHBoxLayout()
-        self.e_col_x = QLineEdit()
-        self.e_col_x.setPlaceholderText('Colonne X (auto)')
-        self.e_col_x.setFixedWidth(140)
-        self.e_col_y = QLineEdit()
-        self.e_col_y.setPlaceholderText('Colonne Y (auto)')
-        self.e_col_y.setFixedWidth(140)
-        row_cols.addWidget(QLabel('X :'))
-        row_cols.addWidget(self.e_col_x)
-        row_cols.addWidget(QLabel('  Y :'))
-        row_cols.addWidget(self.e_col_y)
-        row_cols.addStretch()
-        col_widget = QWidget()
-        col_widget.setLayout(row_cols)
-        self.form.addRow('Colonnes :', col_widget)
-
-        # ── EPSG ──────────────────────────────────────────────────────────
-        self.spin_epsg = QSpinBox()
-        self.spin_epsg.setRange(1024, 99999)
-        self.spin_epsg.setValue(32630)
-        self.spin_epsg.setFixedWidth(120)
-        self.spin_epsg.setToolTip(
-            'Code EPSG du systeme de coordonnees du CSV\n'
-            '  32630 = UTM Zone 30N (zone UTM 30 Nord)\n'
-            '  32631 = UTM Zone 31N (zone UTM 31 Nord)\n'
-            '   4326 = WGS84 Longitude/Latitude (GPS)')
-        self.form.addRow('EPSG CSV :', self.spin_epsg)
-
-        # Liens EPSG rapides
-        lbl_epsg = QLabel(
-            '32630=UTM-30N   32631=UTM-31N   4326=WGS84(GPS)')
-        lbl_epsg.setStyleSheet('color:#1565C0; font-size:9px;')
-        self.form.addRow('', lbl_epsg)
-
-        # ── DEM ───────────────────────────────────────────────────────────
-        lbl_dem = QLabel('DEM (GeoTIFF telecharge a l\'etape 2) :')
-        lbl_dem.setStyleSheet('font-weight:bold; font-size:10px;')
-        self.form.addRow(lbl_dem)
-
-        row2, self.e_dem = _file_row(
-            '', 'Choisir le fichier DEM .tif...', filter_str='GeoTIFF (*.tif *.tiff)')
-        self.form.addRow('Fichier DEM :', row2)
-
-        # ── CSV sortie ────────────────────────────────────────────────────
-        lbl_out = QLabel('Fichier CSV de sortie (avec colonne altitude_dem) :')
-        lbl_out.setStyleSheet('font-weight:bold; font-size:10px;')
-        self.form.addRow(lbl_out)
-
-        row3, self.e_output_csv = _save_file_row(
-            '', 'points_avec_altitude.csv', filter_str='CSV (*.csv)')
-        self.form.addRow('CSV sortie :', row3)
-
-        lbl_out2 = QLabel('Laisser vide = nom automatique (_avec_altitude.csv)')
-        lbl_out2.setStyleSheet('color:#555; font-size:9px;')
-        self.form.addRow('', lbl_out2)
-
-        # ── Valeur NoData ─────────────────────────────────────────────────
-        self.spin_nodata = QDoubleSpinBox()
-        self.spin_nodata.setRange(-99999, 0)
-        self.spin_nodata.setValue(-9999)
-        self.spin_nodata.setDecimals(0)
-        self.spin_nodata.setFixedWidth(120)
-        self.spin_nodata.setToolTip('Valeur ecrite si le point est hors couverture du DEM')
-        self.form.addRow('Valeur hors DEM :', self.spin_nodata)
-
-        # ── Exemple de format CSV ────────────────────────────────────────
-        lbl_ex = QLabel(
-            'Format CSV accepte (avec separateur ";" ou ",") :\n'
-            '  ID;X;Y;...autres colonnes...\n'
-            '  1;200000;3900000;...\n'
-            '  ou : ID,LONGITUDE,LATITUDE,...\n'
-            '       1,-1.342,34.856,...'
+        info = QLabel(
+            "La charge d'un réseau ne dépend pas de l'altitude des nœuds : seule la pression en dépend.\n"
+            "Mesurer la pression statique la nuit, réservoir à niveau connu. Un levé est toujours\n"
+            "prioritaire. Les ± et seuils par défaut sont des valeurs de départ, pas des mesures.\n"
+            "Sortie cotes_epanet.csv : altitudes à reporter dans le modèle."
         )
-        lbl_ex.setStyleSheet(
-            'font-size:9px; font-family:monospace; padding:5px;'
-            'border-radius:4px; background:#E8F5E9; color:#1B5E20;')
-        self.form.addRow('', lbl_ex)
+        info.setWordWrap(True)
+        info.setStyleSheet("color:#1565C0; font-size:10px; background:#E3F2FD;"
+                           "border-radius:4px; padding:6px;")
+        self.form.addRow("", info)
 
     def _get_params(self):
         return {
-            'input_csv':  self.e_input_csv.text().strip(),
-            'output_csv': self.e_output_csv.text().strip(),
-            'dem_path':   self.e_dem.text().strip(),
-            'epsg_csv':   self.spin_epsg.value(),
-            'col_x':      self.e_col_x.text().strip(),
-            'col_y':      self.e_col_y.text().strip(),
-            'nodata_val': self.spin_nodata.value(),
+            "input_nodes": self.e_nodes.text().strip(), "input_inp": self.e_inp.text().strip(),
+            "input_charges": self.e_charges.text().strip(), "input_mesures": self.e_mes.text().strip(),
+            "input_zones": self.e_zones.text().strip(), "output_dir": self.e_outdir.text().strip(),
+            "source_ref": self.e_ref.text().strip(), "surcharges": self.e_sur.text().strip(),
+            "h_source_m": self.sp_hsrc.value(), "perte_charge_m": self.sp_dh.value(),
+            "p_min_m": self.sp_pmin.value(), "p_max_m": self.sp_pmax.value(),
+            "epsg_mesures": self.sp_epsg_m.value(), "epsg_charges": self.sp_epsg_c.value(),
+            "sigma_href_m": self.sp_shref.value(), "sigma_manometre_m": self.sp_sman.value(),
+            "perte_residuelle_m": self.sp_perte.value(), "sigma_perte_m": self.sp_sperte.value(),
+            "sigma_leve_m": self.sp_sleve.value(), "sigma_dem_urbain_m": self.sp_surb.value(),
+            "k_coherence": self.sp_k.value(), "rayon_appariement_m": self.sp_ray.value(),
+            "rayon_charges_m": self.sp_rc.value(), "n_releves": self.sp_n.value(),
+            "dist_min_m": self.sp_dmin.value(),
         }
 
+    def _on_run(self):
+        p = self._get_params()
+        if not p["input_nodes"] or not p["output_dir"]:
+            _append_log(self.log_box, "[!] Renseigner les nœuds et le dossier de sortie.", "#FF9800")
+            return
+        if not (p["input_inp"] or p["surcharges"] or p["h_source_m"]):
+            _append_log(self.log_box, "[!] Fournir le modèle .inp, des cotes saisies ou la charge source.",
+                        "#FF9800")
+            return
+        super()._on_run()
+
     def _get_script_module(self):
-        from .scripts import extract_altitudes_csv
-        return extract_altitudes_csv
+        from .scripts import hydro_reseau
+        return hydro_reseau
 
 
 class TabAccueil(QWidget):
@@ -1022,7 +1149,7 @@ class TabAccueil(QWidget):
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
 
         inner = QWidget()
         layout = QVBoxLayout(inner)
@@ -1030,62 +1157,56 @@ class TabAccueil(QWidget):
         layout.setSpacing(10)
 
         # Titre
-        title = QLabel("🗺️  AEP Tools v2.1 — Traitement du réseau d'eau potable\n"
+        title = QLabel("🗺️  AEP Tools v" + get_version() + " — Traitement du réseau d'eau potable\n"
                        "Développé par Kouidri Sofiane")
-        title.setFont(QFont("", 14, QFont.Bold))
+        title.setFont(QFont("", 14, QFont.Weight.Bold))
         title.setStyleSheet("color: #1565C0; padding: 4px 0 8px 0;")
         title.setWordWrap(True)
         layout.addWidget(title)
 
         sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
+        sep.setFrameShape(QFrame.Shape.HLine)
         sep.setStyleSheet("background:#1565C0; max-height:2px;")
         layout.addWidget(sep)
 
-        # ── Carte résultats validés V2.1 ─────────────────────────────
-        stats_card = QFrame()
-        stats_card.setStyleSheet(
-            "QFrame { background: #E8F5E9; border: 1px solid #A5D6A7; border-radius: 6px; }"
-        )
-        sc_layout = QVBoxLayout(stats_card)
-        sc_layout.setContentsMargins(12, 10, 12, 10)
-        sc_layout.setSpacing(4)
-        sc_title = QLabel("✅  Précision validée — Copernicus GLO-30 (V2.1)")
-        sc_title.setStyleSheet("color:#1B5E20; font-weight:bold; font-size:11px;")
-        sc_layout.addWidget(sc_title)
-        sc_stats = QLabel(
-            "  N = 4 203 pts GPS  |  ME = +0.29 m  |  RMSE = 1.43 m  |  LE90 = 2.25 m\n"
-            "  96.6 % dans ±3 m (seuil APS ±0.3 bar)  |  86.9 % dans ±2 m\n"
-            "  Spec. Copernicus LE90 ≤ 4.00 m → DÉPASSÉ  |  Meilleur que SRTM (9.0 m) et Hawker (4.2 m)"
-        )
-        sc_stats.setStyleSheet("color:#2E7D32; font-size:10px; font-family:monospace;")
-        sc_layout.addWidget(sc_stats)
-        layout.addWidget(stats_card)
+        # ── Avertissement de positionnement ──────────────────────────
+        warn = QFrame()
+        warn.setStyleSheet(
+            "QFrame { background: #FFF3E0; border: 1px solid #FFCC80; border-radius: 6px; }")
+        wl = QVBoxLayout(warn)
+        wl.setContentsMargins(12, 10, 12, 10)
+        wt = QLabel(
+            "ℹ️  Les DEM utilisés (GLO-30, SRTM) sont des modèles de SURFACE de 30 m, pas un MNT.\n"
+            "L'outil signale les points douteux et trace l'origine de chaque cote ;\n"
+            "en zone bâtie, l'étape 6 remplace la cote du DEM par une cote hydraulique (pression statique) contrôlée par les levés.")
+        wt.setStyleSheet("color:#5D4037; font-size:11px; border:none;")
+        wt.setWordWrap(True)
+        wl.addWidget(wt)
+        layout.addWidget(warn)
 
         steps = [
             ("📤", "Étape 1", "Exporter CSV",
-             "Exporte les vertices du shapefile AEP vers un CSV "
-             "(vertices_gps.csv) avec densification par défaut 5 m. "
-             "Fichier de base utilisé par les étapes 2, 3 et 4."),
-            ("🌍", "Étape 2", "Télécharger DEM",
-             "Télécharge le DEM Copernicus GLO-30 (30 m). Zone bbox : "
-             "emprise préréglée, auto depuis CSV étape 1, ou coordonnées manuelles. "
-             "Gratuit, sans compte requis."),
+             "Exporte les vertices des conduites (shapefile) vers un CSV, avec "
+             "densification (5 m par défaut)."),
+            ("🌍", "Étape 2", "Télécharger le DEM",
+             "Copernicus GLO-30 (ESA, radar TanDEM-X) ou SRTM (NASA, 2000), 30 m, gratuits et sans compte. Zone calculée depuis le "
+             "CSV de l'étape 1 ou saisie à la main. Télécharger les deux sources sur la "
+             "même zone permet le contrôle par un 2e DEM."),
             ("⛰️", "Étape 3", "Altitudes DEM",
-             "Échantillonne l'altitude depuis le DEM (étape 2) pour chaque vertex "
-             "(vertices_avec_altitudes.csv). Validé : RMSE 1.43 m, LE90 2.25 m, "
-             "96.6 % dans ±3 m sur 4 203 pts GPS (V2.1)."),
+             "Altitude et pente de chaque vertex, contrôles de cohérence optionnels (2e DEM, "
+             "bâtiments, pics de profil), altitude finale corrigée (FABDEM ou interpolation). "
+             "Accepte aussi tout CSV de points avec lat/lon ou X/Y + EPSG."),
             ("✂️", "Étape 4", "Découpage dénivelé",
-             "Découpe un fichier source (SHP/GeoJSON) à chaque variation de "
-             "dénivelé (seuil configurable, défaut 10 m). Utilise le CSV altitudes étape 3. "
-             "Produit segments et points d'accrochage."),
+             "Découpe les conduites à chaque variation de dénivelé. Les nœuds reçoivent un "
+             "identifiant et gardent la source, la qualité et l'incertitude de leur cote."),
             ("📍", "Étape 5", "Altitude → Couches",
-             "Ajoute le champ altitude à toutes les couches vecteur SHP du projet QGIS "
-             "à partir du CSV altitudes étape 3. Produit de nouveaux SHP enrichis."),
-            ("📌", "Étape 6", "Altitudes depuis CSV",
-             "Ajoute des altitudes à n'importe quel CSV avec coordonnées. "
-             "Choisir l'EPSG, le DEM (étape 2) et le fichier de sortie. "
-             "Détection automatique colonnes X/Y ou Lon/Lat."),
+             "Ajoute l'altitude aux couches SHP du projet à partir du CSV de l'étape 3."),
+            ("💧", "Étape 6", "Hydraulique : cotes et nœuds sensibles",
+             "Outil hydraulique. Lit les réservoirs du modèle EPANET, déduit la cote du sol de la "
+             "pression statique mesurée (Z = H réservoir − P − h manomètre), la confronte aux levés "
+             "(un levé n'est jamais écrasé, toute contradiction est signalée), mesure l'erreur réelle "
+             "du DEM par zone, puis désigne avec les charges du modèle les nœuds dont l'altitude peut "
+             "changer la conclusion sur la pression. Produit cotes_epanet.csv pour le modèle."),
         ]
 
         for icon, step, name, desc in steps:
@@ -1101,7 +1222,7 @@ class TabAccueil(QWidget):
             icon_lbl = QLabel(icon)
             icon_lbl.setFont(QFont("", 18))
             icon_lbl.setFixedWidth(32)
-            icon_lbl.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
+            icon_lbl.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
 
             text_col = QVBoxLayout()
             text_col.setSpacing(3)
@@ -1124,10 +1245,10 @@ class TabAccueil(QWidget):
         layout.addStretch()
 
         note = QLabel(
-            "💡  Flux de travail conseillé : 1 → 2 → 3 → 4 → 5\n"
-            "     Étape 6 : pour tout CSV quelconque avec coordonnées.\n"
-            "     Si vous avez déjà un DEM local, commencez directement à l'étape 1.\n"
-            "     V2.1 — Validé sur 4 203 pts GPS : RMSE 1.43 m, LE90 2.25 m ✅"
+            "💡  Adduction en terrain ouvert : étapes 1 → 5 (DEM, découpage par dénivelé, nœuds EPANET).\n"
+            "     Distribution en zone bâtie : ne pas utiliser la cote du DEM comme cote de calcul ;\n"
+            "     étape 6 avec la pression statique de quelques bouches la nuit et le modèle EPANET.\n"
+            "     Boucle : étape 6 → plan_releves.csv → mesure terrain → étape 6 (le LE90 se met à jour)."
         )
         note.setStyleSheet(
             "background: #FFF8E1; border: 1px solid #FFE082; border-radius: 5px; "
@@ -1149,7 +1270,7 @@ class AEPDialog(QDialog):
         super().__init__(parent)
         self.iface = iface
         self.setWindowTitle("AEP Tools — Traitement du réseau d'eau potable")
-        # Taille suffisante pour que les 6 onglets s'affichent sans chevauchement
+        # Taille suffisante pour que les 8 onglets s'affichent sans chevauchement
         self.setMinimumSize(QSize(860, 640))
         self.resize(960, 730)
         self.setStyleSheet(STYLE_SHEET)
@@ -1181,7 +1302,7 @@ class AEPDialog(QDialog):
             ("3-Altitudes",    Tab02_Altitudes()),
             ("4-Decoupage",    Tab03_Decoupage()),
             ("5-Alt Couches",  Tab04_ExtracterAlt()),
-            ("6-Altitudes CSV",Tab05_ExtractCSV()),
+            ("6-Hydraulique",  Tab06_Hydro()),
         ]
 
         stack = QStackedWidget()
@@ -1198,7 +1319,7 @@ class AEPDialog(QDialog):
 
         for i, (label, widget) in enumerate(tabs_data):
             btn = QPushButton(label)
-            btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+            btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
             btn.setProperty("active", "true" if i == 0 else "false")
             btn.clicked.connect(make_switch(i))
             nav_layout.addWidget(btn)
@@ -1209,10 +1330,10 @@ class AEPDialog(QDialog):
         main_layout.addWidget(stack, 1)
 
         footer = QLabel(
-            "Kouidri Sofiane · sofihydro@gmail.com  |  QGIS ≥ 3.16  |  AEP Tools v2.1.5  |  © 2026 Kouidri Sofiane"
+            "Kouidri Sofiane · sofihydro@gmail.com  |  QGIS ≥ 3.16  |  AEP Tools v" + get_version() + "  |  © 2026 Kouidri Sofiane"
         )
         footer.setStyleSheet("color: #888; font-size: 10px; padding: 2px 6px;")
-        footer.setAlignment(Qt.AlignRight)
+        footer.setAlignment(Qt.AlignmentFlag.AlignRight)
         main_layout.addWidget(footer)
 
     def closeEvent(self, event):

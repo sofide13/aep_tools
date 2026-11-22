@@ -1,14 +1,14 @@
 """
-Script 04 — Ajout attribut altitude à toutes les couches vecteur (adapté plugin)
+Étape 5 — Ajout de l'altitude aux couches vecteur du projet
 """
 import csv, os, math
 
 
 def load_alti_pts(csv_path, log_fn):
     alti_pts = []
+    from ._common import detect_sep
+    sep = detect_sep(csv_path, "utf-8")
     with open(csv_path, newline="", encoding="utf-8") as f:
-        sample = f.read(2048); f.seek(0)
-        sep = ";" if sample.count(";") > sample.count(",") else ","
         reader = csv.reader(f, delimiter=sep)
         header = [c.lower().strip() for c in next(reader)]
         try:
@@ -46,13 +46,41 @@ def get_alti_in_epsg(alti_pts, epsg):
     return result
 
 
-def nearest_z(px, py, pts):
-    best_d, best_z = float("inf"), None
-    for cx, cy, cz in pts:
-        d = math.hypot(px - cx, py - cy)
-        if d < best_d:
-            best_d, best_z = d, cz
-    return best_z, best_d
+class _Grid:
+    """Index en grille : plus proche point sans balayer toute la liste (O(1) en moyenne)."""
+
+    def __init__(self, pts):
+        self.cells = {}
+        self.pts = pts
+        if not pts:
+            self.cell = 1.0
+            return
+        xs = [p[0] for p in pts]
+        ys = [p[1] for p in pts]
+        span = max(max(xs) - min(xs), max(ys) - min(ys), 1e-9)
+        self.cell = span / max(1.0, math.sqrt(len(pts)))
+        for p in pts:
+            self.cells.setdefault((int(p[0] // self.cell), int(p[1] // self.cell)), []).append(p)
+
+    def nearest(self, px, py):
+        if not self.pts:
+            return None, float("inf")
+        cx, cy = int(px // self.cell), int(py // self.cell)
+        best_d, best_z = float("inf"), None
+        max_ring = int(max(1, max(abs(cx - k[0]) + abs(cy - k[1]) for k in self.cells) + 1))
+        for r in range(0, max_ring + 1):
+            for gx in range(cx - r, cx + r + 1):
+                for gy in range(cy - r, cy + r + 1):
+                    if max(abs(gx - cx), abs(gy - cy)) != r:
+                        continue
+                    for (x, y, z) in self.cells.get((gx, gy), ()):
+                        d = math.hypot(px - x, py - y)
+                        if d < best_d:
+                            best_d, best_z = d, z
+            # tout point d'un anneau > r est a plus de r*cell du point cherche
+            if best_z is not None and best_d <= r * self.cell:
+                break
+        return best_z, best_d
 
 
 def process_layer(lyr_path, alti_pts, epsg, geom_type, out_dir, log_fn):
@@ -62,7 +90,7 @@ def process_layer(lyr_path, alti_pts, epsg, geom_type, out_dir, log_fn):
         base, ext = os.path.splitext(out_path)
         out_path = base + "_alt" + ext
 
-    alti_rep = get_alti_in_epsg(alti_pts, epsg)
+    grid = _Grid(get_alti_in_epsg(alti_pts, epsg))
     src_ds = ogr.Open(lyr_path)
     src_lyr = src_ds.GetLayer(0)
     drv = ogr.GetDriverByName("ESRI Shapefile")
@@ -90,7 +118,7 @@ def process_layer(lyr_path, alti_pts, epsg, geom_type, out_dir, log_fn):
         else:
             px, py = g.GetX(), g.GetY()
 
-        z, d = nearest_z(px, py, alti_rep)
+        z, d = grid.nearest(px, py)
         new_feat = ogr.Feature(defn)
         new_feat.SetGeometry(g.Clone())
         for i in range(src_lyr.GetLayerDefn().GetFieldCount()):
@@ -118,7 +146,7 @@ def run(params, log_fn, progress_fn, stop_fn=None):
     out_dir = params["out_dir"]
 
     log_fn("═" * 55)
-    log_fn("  Étape 4 — Ajout altitude aux couches")
+    log_fn("  Étape 5 — Ajout altitude aux couches")
     log_fn("═" * 55)
 
     if not os.path.exists(csv_alt):
@@ -139,9 +167,9 @@ def run(params, log_fn, progress_fn, stop_fn=None):
         from qgis.core import QgsProject, QgsWkbTypes, QgsVectorLayer
         from osgeo import ogr as _ogr
         OGR_TYPES = {
-            QgsWkbTypes.PointGeometry: _ogr.wkbPoint,
-            QgsWkbTypes.LineGeometry: _ogr.wkbLineString,
-            QgsWkbTypes.PolygonGeometry: _ogr.wkbPolygon,
+            QgsWkbTypes.GeometryType.PointGeometry: _ogr.wkbPoint,
+            QgsWkbTypes.GeometryType.LineGeometry: _ogr.wkbLineString,
+            QgsWkbTypes.GeometryType.PolygonGeometry: _ogr.wkbPolygon,
         }
         layers = list(QgsProject.instance().mapLayers().values())
         shp_layers = []

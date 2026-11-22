@@ -1,16 +1,8 @@
 """
-Script 01 — Export AEP → CSV pour GPS Visualizer (adapté plugin)
+Étape 1 — Export des vertices des conduites vers un CSV (densifié)
 """
 import csv, math, os
-
-
-def haversine_m(lon1, lat1, lon2, lat2):
-    R = 6371000.0
-    f1, f2 = math.radians(lat1), math.radians(lat2)
-    a = (math.sin(math.radians(lat2 - lat1) / 2) ** 2
-         + math.cos(f1) * math.cos(f2)
-         * math.sin(math.radians(lon2 - lon1) / 2) ** 2)
-    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+from ._common import haversine_m
 
 
 def densify(lon1, lat1, lon2, lat2, step_m):
@@ -66,7 +58,7 @@ def read_shp_standalone(path, log_fn):
                 lbl = str(p.get("label", "") or "")
                 gt = feat["geometry"]["type"]
                 cc = feat["geometry"]["coordinates"]
-                lines = ([list(l) for l in cc] if gt == "MultiLineString"
+                lines = ([list(seg) for seg in cc] if gt == "MultiLineString"
                          else ([list(cc)] if gt == "LineString" else []))
                 if lines:
                     out.append((fid, lbl, lines))

@@ -6,6 +6,8 @@ __copyright__ = "Copyright (c) 2026 Kouidri Sofiane"
 from qgis.PyQt.QtWidgets import QAction, QMessageBox
 from qgis.PyQt.QtGui import QIcon
 
+from ._version import get_version
+
 
 class AEPToolsPlugin:
     def __init__(self, iface):
@@ -36,9 +38,9 @@ class AEPToolsPlugin:
     def show_about(self):
         QMessageBox.information(
             self.iface.mainWindow(), "À propos - AEP Tools",
-            "<h3>AEP Tools v2.1.5</h3>"
+            "<h3>AEP Tools v" + get_version() + "</h3>"
             "<p>Outils QGIS pour les réseaux d'eau potable : DEM, altitudes, "
-            "classification de fiabilité, découpage par dénivelé.</p>"
+            "fiabilité, nœuds sensibles, découpage par dénivelé.</p>"
             "<p><b>Développé par : Kouidri Sofiane</b><br>"
             "© 2026 Kouidri Sofiane<br>Contact : sofihydro@gmail.com</p>"
             "<p>Toute redistribution doit conserver cette mention d'auteur.</p>")

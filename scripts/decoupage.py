@@ -1,7 +1,8 @@
 """
-Script 03 — Découpage AEP par dénivelé (adapté plugin)
+Étape 4 — Découpage des conduites par dénivelé, avec traçabilité des nœuds
 """
 import csv, re, json, math, os, time
+from ._common import haversine_m
 from collections import defaultdict
 
 NAME_RE = re.compile(r"^fid(\d+)_l(\d+)_v(\d+)(_d)?$")
@@ -14,17 +15,23 @@ def parse_name(name):
     return int(m.group(1)), int(m.group(2)), int(m.group(3)), m.group(4) is not None
 
 
+def _num(txt):
+    try:
+        return float(str(txt).strip())
+    except (ValueError, TypeError):
+        return None
+
+
+_QRANK = {"FIABLE": 0, "ACCEPTABLE": 1, "INCERTAINE": 2, "NON_FIABLE": 3}
+
+
+def _worst(a, b):
+    """Pire des deux classes de qualite (un point coupe herite de ses deux voisins)."""
+    return a if _QRANK.get(a, -1) >= _QRANK.get(b, -1) else b
+
+
 def interp(a, b, t):
     return a + t * (b - a)
-
-
-def haversine_m(lon1, lat1, lon2, lat2):
-    R = 6_371_000.0
-    f1, f2 = math.radians(lat1), math.radians(lat2)
-    a = (math.sin(math.radians(lat2 - lat1) / 2) ** 2
-         + math.cos(f1) * math.cos(f2)
-         * math.sin(math.radians(lon2 - lon1) / 2) ** 2)
-    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
 def load_csv_points(path):
@@ -48,6 +55,10 @@ def load_csv_points(path):
                     "lat": float(row["latitude"]),
                     "alt": float(alt_str),
                     "vi": vi, "is_d": is_d,
+                    "qual": (row.get("qualite_finale") or row.get("qualite") or "").strip(),
+                    "src": (row.get("source_altitude") or "").strip(),
+                    "alerte": (row.get("alerte") or "").strip(),
+                    "incert": _num(row.get("incertitude_m")),
                 })
             except ValueError:
                 n_skip += 1
@@ -86,9 +97,15 @@ def cut_line_by_denivele(pts, denivele_m):
             alt_a, alt_b = prev["alt"], curr["alt"]
             t = 0.5 if abs(alt_b - alt_a) < 1e-9 else (target_alt - alt_a) / (alt_b - alt_a)
             t = max(0.0, min(1.0, t))
+            ia = [x for x in (prev.get("incert"), curr.get("incert")) if x is not None]
             cut = {"lon": interp(prev["lon"], curr["lon"], t),
                    "lat": interp(prev["lat"], curr["lat"], t),
-                   "alt": target_alt}
+                   "alt": target_alt,
+                   "qual": _worst(prev.get("qual", ""), curr.get("qual", "")),
+                   "src": "INTERP_COUPE",
+                   "alerte": ";".join(sorted({a for a in (prev.get("alerte", ""),
+                                                          curr.get("alerte", "")) if a})),
+                   "incert": max(ia) if ia else None}
             cur_seg.append(cut)
             segments.append(cur_seg)
             cut_pts.append(cut)
@@ -130,9 +147,14 @@ def make_point_feature(pt, fid, li, pt_idx, pt_type, attrs):
         "type": "Feature",
         "geometry": {"type": "Point", "coordinates": [pt["lon"], pt["lat"]]},
         "properties": {
+            "node_id": "N_%d_%d_%d" % (fid, li, pt_idx),
             "fid": fid, "line_idx": li, "pt_id": pt_idx,
             "label": attrs.get("label"), "diametre": attrs.get("diametre"),
             "altitude_m": round(pt["alt"], 2), "type": pt_type,
+            "source_altitude": pt.get("src") or None,
+            "qualite_finale": pt.get("qual") or None,
+            "alerte": pt.get("alerte") or None,
+            "incertitude_m": pt.get("incert"),
         }
     }
 
@@ -153,7 +175,7 @@ def run(params, log_fn, progress_fn, stop_fn=None):
     denivele_m    = float(params.get("denivele_m", 10.0))
 
     log_fn("═" * 55)
-    log_fn("  Étape 3 — Découpage par dénivelé")
+    log_fn("  Étape 4 — Découpage par dénivelé")
     log_fn("═" * 55)
 
     if not os.path.exists(input_csv):

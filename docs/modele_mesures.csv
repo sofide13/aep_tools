@@ -1,0 +1,4 @@
+id;latitude;longitude;pression_m;z_leve;hauteur_manometre_m;sigma_m;reservoir
+BI_01;35,0021118;-0,5132613;38,4;;1,0;;R1
+BI_02;34,9972535;-0,4567907;;408,59;;;
+BI_03;34,9988410;-0,4411020;5,1;;0,8;;R2
